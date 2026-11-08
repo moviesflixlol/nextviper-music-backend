@@ -1,0 +1,204 @@
+// NextViper Music Backend - YouTube Music InnerTube Module
+// Direct InnerTube search and native iOS client audio stream resolver
+
+import std.http
+import std.json
+import std.time
+
+fn build_innertube_headers():
+    return {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Origin": "https://music.youtube.com",
+        "Referer": "https://music.youtube.com/"
+    }
+
+fn build_ios_headers():
+    return {
+        "Content-Type": "application/json",
+        "User-Agent": "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)"
+    }
+
+let mut SEARCH_CACHE = {}
+
+fn execute_innertube_search(q, country):
+    let mut gl_code = "IN"
+    if len(country) > 0:
+        gl_code = country
+
+    let body = {
+        "context": {
+            "client": {
+                "clientName": "WEB_REMIX",
+                "clientVersion": "1.20240401.01.00",
+                "hl": "en",
+                "gl": gl_code
+            }
+        },
+        "query": q
+    }
+
+    let res = http.exchange({
+        "url": "https://music.youtube.com/youtubei/v1/search",
+        "method": "POST",
+        "body": json.stringify(body),
+        "headers": build_innertube_headers(),
+        "timeout_ms": 15000
+    })
+
+    let mut results = []
+    if !res["ok"]:
+        return results
+
+    let data = json.parse(res["data"]["body"])
+
+    if contains(keys(data), "contents"):
+        let contents = data["contents"]
+        if contains(keys(contents), "tabbedSearchResultsRenderer"):
+            let tabs = contents["tabbedSearchResultsRenderer"]["tabs"]
+            if len(tabs) > 0:
+                let tab_content = tabs[0]["tabRenderer"]["content"]
+                if contains(keys(tab_content), "sectionListRenderer"):
+                    let sections = tab_content["sectionListRenderer"]["contents"]
+                    for sec in sections {
+                        let sec_keys = keys(sec)
+                        if contains(sec_keys, "itemSectionRenderer"):
+                            let sec_items = sec["itemSectionRenderer"]["contents"]
+                            for item in sec_items {
+                                if contains(keys(item), "musicResponsiveListItemRenderer"):
+                                    let r = item["musicResponsiveListItemRenderer"]
+                                    let flex = r["flexColumns"]
+                                    
+                                    let mut title = ""
+                                    let mut artist = ""
+                                    let mut duration = ""
+                                    let mut video_id = ""
+                                    let mut thumbnail = ""
+
+                                    if len(flex) > 0:
+                                        let col0 = flex[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
+                                        if len(col0) > 0:
+                                            title = col0[0]["text"]
+
+                                    if len(flex) > 1:
+                                        let col1 = flex[1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
+                                        if len(col1) > 2 and (col1[0]["text"] == "Song" or col1[0]["text"] == "Video"):
+                                            artist = col1[2]["text"]
+                                            if len(col1) > 4:
+                                                duration = col1[4]["text"]
+                                        elif len(col1) > 0:
+                                            artist = col1[0]["text"]
+
+                                    if contains(keys(r), "playlistItemData"):
+                                        let pid = r["playlistItemData"]
+                                        if contains(keys(pid), "videoId"):
+                                            video_id = pid["videoId"]
+
+                                    if len(video_id) == 0 and len(flex) > 0:
+                                        let col0 = flex[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
+                                        if len(col0) > 0 and contains(keys(col0[0]), "navigationEndpoint"):
+                                            let ep = col0[0]["navigationEndpoint"]
+                                            if contains(keys(ep), "watchEndpoint"):
+                                                video_id = ep["watchEndpoint"]["videoId"]
+
+                                    if contains(keys(r), "thumbnail"):
+                                        let thumbs = r["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]["thumbnails"]
+                                        if len(thumbs) > 0:
+                                            thumbnail = thumbs[len(thumbs) - 1]["url"]
+
+                                    if len(video_id) > 0:
+                                        append(results, {
+                                            "id": video_id,
+                                            "title": title,
+                                            "artist": artist,
+                                            "duration": duration,
+                                            "thumbnail": thumbnail,
+                                            "genre": "Pop"
+                                        })
+                            }
+                    }
+
+    return results
+
+fn search_youtube_cached(q, country):
+    let now = time.now()
+    let cache_key = q + "_" + country
+    if contains(keys(SEARCH_CACHE), cache_key):
+        let entry = SEARCH_CACHE[cache_key]
+        if (now - entry["timestamp"]) < 600.0:
+            return entry["results"]
+
+    let res = execute_innertube_search(q, country)
+    if len(res) > 0:
+        SEARCH_CACHE[cache_key] = {
+            "timestamp": now,
+            "results": res
+        }
+    return res
+
+fn resolve_innertube_stream(video_id):
+    let body = {
+        "context": {
+            "client": {
+                "clientName": "IOS",
+                "clientVersion": "21.03.1",
+                "deviceMake": "Apple",
+                "deviceModel": "iPhone16,2",
+                "osName": "iOS",
+                "osVersion": "18.2.22C152",
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "videoId": video_id
+    }
+
+    let res = http.exchange({
+        "url": "https://www.youtube.com/youtubei/v1/player",
+        "method": "POST",
+        "body": json.stringify(body),
+        "headers": build_ios_headers(),
+        "timeout_ms": 15000
+    })
+
+    if !res["ok"]:
+        return {
+            "status": 502,
+            "body": { "error": "Failed to query YouTube player endpoint" }
+        }
+
+    let data = json.parse(res["data"]["body"])
+    let mut playability = "UNKNOWN"
+    if contains(keys(data), "playabilityStatus"):
+        playability = data["playabilityStatus"]["status"]
+
+    let mut audio_streams = []
+    if contains(keys(data), "streamingData"):
+        let sd = data["streamingData"]
+        if contains(keys(sd), "adaptiveFormats"):
+            let af = sd["adaptiveFormats"]
+            for f in af {
+                let mime = f["mimeType"]
+                if mime.contains("audio"):
+                    let mut stream_info = {
+                        "itag": f["itag"],
+                        "mimeType": mime,
+                        "bitrate": f["bitrate"]
+                    }
+                    if contains(keys(f), "url"):
+                        stream_info["url"] = f["url"]
+                        stream_info["hasDirectUrl"] = true
+                    else:
+                        stream_info["hasDirectUrl"] = false
+                    append(audio_streams, stream_info)
+            }
+
+    return {
+        "status": 200,
+        "body": {
+            "videoId": video_id,
+            "playabilityStatus": playability,
+            "streamsCount": len(audio_streams),
+            "streams": audio_streams
+        }
+    }

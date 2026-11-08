@@ -1,0 +1,212 @@
+// NextViper Music Backend - Recommendation & Telemetry Engine
+// Continuous learning from user interactions, genre profiling & dynamic mix generation
+
+import std.time
+import std.crypto
+import std.math
+
+let CATALOG_TRACKS = [
+    {
+        "id": "6eW99oNNRvI",
+        "title": "Starboy (Official Music Video)",
+        "artist": "The Weeknd",
+        "duration": "3:50",
+        "thumbnail": "https://i.ytimg.com/vi/6eW99oNNRvI/hqdefault.jpg",
+        "genre": "Pop"
+    },
+    {
+        "id": "p8_ugAjWI5I",
+        "title": "Blinding Lights",
+        "artist": "The Weeknd",
+        "duration": "3:20",
+        "thumbnail": "https://i.ytimg.com/vi/p8_ugAjWI5I/hqdefault.jpg",
+        "genre": "Pop"
+    },
+    {
+        "id": "Kcj5-jWxgKs",
+        "title": "Save Your Tears",
+        "artist": "The Weeknd",
+        "duration": "3:35",
+        "thumbnail": "https://i.ytimg.com/vi/Kcj5-jWxgKs/hqdefault.jpg",
+        "genre": "Pop"
+    },
+    {
+        "id": "VKC_hzJ3jzg",
+        "title": "Stitches",
+        "artist": "Shawn Mendes",
+        "duration": "3:26",
+        "thumbnail": "https://i.ytimg.com/vi/VKC_hzJ3jzg/hqdefault.jpg",
+        "genre": "Pop"
+    },
+    {
+        "id": "3_g2un5M350",
+        "title": "Treat You Better",
+        "artist": "Shawn Mendes",
+        "duration": "3:07",
+        "thumbnail": "https://i.ytimg.com/vi/3_g2un5M350/hqdefault.jpg",
+        "genre": "Pop"
+    }
+]
+
+fn record_event(profiles, events, user_id, body):
+    let track_id = body["trackId"]
+    let event_type = body["eventType"]
+    let mut duration = 180
+    if contains(keys(body), "duration"):
+        duration = body["duration"]
+
+    let mut played_seconds = 0
+    if contains(keys(body), "playedSeconds"):
+        played_seconds = body["playedSeconds"]
+
+    let mut artist = ""
+    if contains(keys(body), "artist"):
+        artist = body["artist"]
+
+    let mut genre = "Pop"
+    if contains(keys(body), "genre"):
+        genre = body["genre"]
+
+    let event_record = {
+        "id": "evt_" + str(time.now()) + "_" + crypto.random_bytes(3),
+        "userId": user_id,
+        "trackId": track_id,
+        "eventType": event_type,
+        "duration": duration,
+        "playedSeconds": played_seconds,
+        "artist": artist,
+        "genre": genre,
+        "timestamp": time.now()
+    }
+    append(events, event_record)
+
+    if len(user_id) > 0 and user_id != "anonymous":
+        if !contains(keys(profiles), user_id):
+            profiles[user_id] = {
+                "userId": user_id,
+                "preferredArtists": {},
+                "preferredGenres": {},
+                "likedTracks": [],
+                "dislikedTracks": [],
+                "history": [],
+                "skippedTracks": []
+            }
+
+        let user_prof = profiles[user_id]
+
+        // On every play: immediately reward artist and genre affinity
+        if event_type == "play" or event_type == "complete":
+            if len(artist) > 0:
+                let mut cur = 0.5
+                if contains(keys(user_prof["preferredArtists"]), artist):
+                    cur = user_prof["preferredArtists"][artist]
+                user_prof["preferredArtists"][artist] = cur + 0.35
+
+            if len(genre) > 0:
+                let mut cur_g = 0.5
+                if contains(keys(user_prof["preferredGenres"]), genre):
+                    cur_g = user_prof["preferredGenres"][genre]
+                user_prof["preferredGenres"][genre] = cur_g + 0.35
+
+            if !contains(user_prof["history"], track_id):
+                append(user_prof["history"], track_id)
+
+        elif event_type == "like":
+            if !contains(user_prof["likedTracks"], track_id):
+                append(user_prof["likedTracks"], track_id)
+            if len(artist) > 0:
+                let mut cur = 0.5
+                if contains(keys(user_prof["preferredArtists"]), artist):
+                    cur = user_prof["preferredArtists"][artist]
+                user_prof["preferredArtists"][artist] = cur + 0.40
+            if len(genre) > 0:
+                let mut cur_g = 0.5
+                if contains(keys(user_prof["preferredGenres"]), genre):
+                    cur_g = user_prof["preferredGenres"][genre]
+                user_prof["preferredGenres"][genre] = cur_g + 0.40
+
+        elif event_type == "dislike":
+            if !contains(user_prof["dislikedTracks"], track_id):
+                append(user_prof["dislikedTracks"], track_id)
+            if len(artist) > 0 and contains(keys(user_prof["preferredArtists"]), artist):
+                user_prof["preferredArtists"][artist] = user_prof["preferredArtists"][artist] - 0.40
+
+        elif event_type == "add_to_playlist":
+            if len(artist) > 0:
+                let mut cur = 0.5
+                if contains(keys(user_prof["preferredArtists"]), artist):
+                    cur = user_prof["preferredArtists"][artist]
+                user_prof["preferredArtists"][artist] = cur + 0.35
+            if len(genre) > 0:
+                let mut cur_g = 0.5
+                if contains(keys(user_prof["preferredGenres"]), genre):
+                    cur_g = user_prof["preferredGenres"][genre]
+                user_prof["preferredGenres"][genre] = cur_g + 0.35
+
+        elif event_type == "skip":
+            if played_seconds < 15:
+                if !contains(user_prof["skippedTracks"], track_id):
+                    append(user_prof["skippedTracks"], track_id)
+                if len(artist) > 0 and contains(keys(user_prof["preferredArtists"]), artist):
+                    user_prof["preferredArtists"][artist] = user_prof["preferredArtists"][artist] - 0.15
+
+fn generate_category_keywords(category, country, user_prof):
+    let mut keywords = []
+
+    if category == "Podcasts":
+        keywords = [
+            "trending podcasts hindi english",
+            "popular podcasts 2026",
+            "the ranveer show trs podcast",
+            "huberman lab podcast clips",
+            "sam altman figuring out",
+            "science vs podcast",
+            "joe rogan experience podcast"
+        ]
+    elif category == "Music":
+        // First priority: user chosen genres and artists!
+        if user_prof != nil:
+            let pref_genres = user_prof["preferredGenres"]
+            for g in keys(pref_genres):
+                if pref_genres[g] > 0.4:
+                    append(keywords, g + " songs hits 2026")
+
+            let pref_artists = user_prof["preferredArtists"]
+            for a in keys(pref_artists):
+                if pref_artists[a] > 0.4:
+                    append(keywords, a + " top songs")
+
+        if len(keywords) == 0:
+            if country == "US":
+                keywords = ["top viral billboard hits", "trending pop music usa", "hip hop rap hits 2026"]
+            else:
+                keywords = ["trending bollywood songs 2026", "punjabi party hits 2026", "arijit singh top songs"]
+
+    elif category == "Charts":
+        if country == "US":
+            keywords = ["billboard hot 100", "top 50 usa hits", "viral pop 2026"]
+        else:
+            keywords = ["hot hits hindi top 50", "global viral 50 hits", "party hits punjabi"]
+
+    else:
+        // Category is "All": Hybrid blend
+        if user_prof != nil:
+            let pref_genres = user_prof["preferredGenres"]
+            for g in keys(pref_genres):
+                if pref_genres[g] > 0.4:
+                    append(keywords, g + " trending songs")
+
+            let pref_artists = user_prof["preferredArtists"]
+            for a in keys(pref_artists):
+                if pref_artists[a] > 0.4:
+                    append(keywords, a + " hits")
+
+        // Include location-based trending seeds
+        if country == "US":
+            append(keywords, "billboard hot 100")
+            append(keywords, "viral songs 2026 usa")
+        else:
+            append(keywords, "top bollywood songs 2026")
+            append(keywords, "trending punjabi pop 2026")
+
+    return keywords

@@ -1,0 +1,24 @@
+// NextViper Music Backend - Database Module
+// Manages local JSON databases and persistent storage
+
+import std.fs
+import std.json
+
+let DATA_DIR = "./data"
+
+if !fs.exists(DATA_DIR):
+    fs.mkdir(DATA_DIR)
+
+fn load_db(filename, default_val):
+    let path = DATA_DIR + "/" + filename
+    if !fs.exists(path):
+        fs.write_text(path, json.stringify(default_val))
+        return default_val
+    let content = fs.read_text(path)
+    if len(content) == 0:
+        return default_val
+    return json.parse(content)
+
+fn save_db(filename, data):
+    let path = DATA_DIR + "/" + filename
+    fs.write_text(path, json.stringify(data))

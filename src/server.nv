@@ -1,6 +1,5 @@
-// NextViper Music Backend Server - Production Ready
-// Built 100% in pure NextViper
-// Features: InnerTube Search, Stream Resolve, PBKDF2 Auth, JWT, Cloud Playlists, Intelligent Recommendation Engine
+// NextViper Music Backend - Production Server
+// Modular architecture: database, email_service, innertube, recommendations
 
 import std.io
 import std.http
@@ -11,322 +10,76 @@ import std.crypto
 import std.math
 import std.env
 
+import database
+import email_service
+import innertube
+import recommendations
+
 print("==================================================")
-print("  Initializing NextViper Production Music Backend  ")
-print("  Runtime: NextViper 1.0.0 (Apex)                  ")
+print("  Initializing NextViper Modular Music Backend    ")
+print("  Runtime: NextViper 1.0.0 (Apex)                 ")
 print("==================================================")
 
 let JWT_SECRET = "nextviper_production_jwt_master_secret_2026_apex_cloud"
-let DATA_DIR = "./data"
 
-if !fs.exists(DATA_DIR):
-    fs.mkdir(DATA_DIR)
+// Initialize In-Memory / Persistent Storage
+let mut users = database.load_db("users.json", [])
+let mut playlists = database.load_db("playlists.json", [])
+let mut events = database.load_db("events.json", [])
+let mut profiles = database.load_db("profiles.json", {})
 
-// --- Database Helper Functions ---
-
-fn load_db(filename, default_val):
-    let path = DATA_DIR + "/" + filename
-    if !fs.exists(path):
-        fs.write_text(path, json.stringify(default_val))
-        return default_val
-    let content = fs.read_text(path)
-    if len(content) == 0:
-        return default_val
-    return json.parse(content)
-
-fn save_db(filename, data):
-    let path = DATA_DIR + "/" + filename
-    fs.write_text(path, json.stringify(data))
-
-// Initialize Storage Files
-let mut users = load_db("users.json", [])
-let mut playlists = load_db("playlists.json", [])
-let mut events = load_db("events.json", [])
-let mut profiles = load_db("profiles.json", {})
+let mut PENDING_REGISTRATIONS = {}
+let mut PASSWORD_RESETS = {}
 
 print("Loaded Database:")
 print(" - Users count: " + str(len(users)))
 print(" - Playlists count: " + str(len(playlists)))
 print(" - Events count: " + str(len(events)))
 
-// --- Pre-seeded Curated Song Catalog for Intelligent Recommendation Candidates ---
-let CATALOG_TRACKS = [
-    {
-        "id": "4NRXx6U8ABQ",
-        "title": "Blinding Lights",
-        "artist": "The Weeknd",
-        "genre": "Pop",
-        "duration": "3:20",
-        "thumbnail": "https://i.ytimg.com/vi/4NRXx6U8ABQ/hqdefault.jpg",
-        "popularity": 0.98
-    },
-    {
-        "id": "TUVcZfQe-Kw",
-        "title": "Levitating",
-        "artist": "Dua Lipa",
-        "genre": "Pop",
-        "duration": "3:23",
-        "thumbnail": "https://i.ytimg.com/vi/TUVcZfQe-Kw/hqdefault.jpg",
-        "popularity": 0.95
-    },
-    {
-        "id": "H5v3kku4y6Q",
-        "title": "As It Was",
-        "artist": "Harry Styles",
-        "genre": "Pop",
-        "duration": "2:47",
-        "thumbnail": "https://i.ytimg.com/vi/H5v3kku4y6Q/hqdefault.jpg",
-        "popularity": 0.96
-    },
-    {
-        "id": "ic8j13piAhQ",
-        "title": "Cruel Summer",
-        "artist": "Taylor Swift",
-        "genre": "Pop",
-        "duration": "2:58",
-        "thumbnail": "https://i.ytimg.com/vi/ic8j13piAhQ/hqdefault.jpg",
-        "popularity": 0.97
-    },
-    {
-        "id": "eVli-tstM5E",
-        "title": "Espresso",
-        "artist": "Sabrina Carpenter",
-        "genre": "Pop",
-        "duration": "2:55",
-        "thumbnail": "https://i.ytimg.com/vi/eVli-tstM5E/hqdefault.jpg",
-        "popularity": 0.99
-    },
-    {
-        "id": "V9PVRfjEBTI",
-        "title": "BIRDS OF A FEATHER",
-        "artist": "Billie Eilish",
-        "genre": "Pop",
-        "duration": "3:13",
-        "thumbnail": "https://i.ytimg.com/vi/V9PVRfjEBTI/hqdefault.jpg",
-        "popularity": 0.97
-    },
-    {
-        "id": "H58vbez_m4E",
-        "title": "Not Like Us",
-        "artist": "Kendrick Lamar",
-        "genre": "Hip-Hop",
-        "duration": "4:34",
-        "thumbnail": "https://i.ytimg.com/vi/H58vbez_m4E/hqdefault.jpg",
-        "popularity": 0.98
-    },
-    {
-        "id": "B9synWjqBn8",
-        "title": "FE!N",
-        "artist": "Travis Scott",
-        "genre": "Hip-Hop",
-        "duration": "3:11",
-        "thumbnail": "https://i.ytimg.com/vi/B9synWjqBn8/hqdefault.jpg",
-        "popularity": 0.95
-    },
-    {
-        "id": "uxpDa-c-4Mc",
-        "title": "God's Plan",
-        "artist": "Drake",
-        "genre": "Hip-Hop",
-        "duration": "3:18",
-        "thumbnail": "https://i.ytimg.com/vi/uxpDa-c-4Mc/hqdefault.jpg",
-        "popularity": 0.94
-    },
-    {
-        "id": "2Vv-BfVoq4g",
-        "title": "Perfect",
-        "artist": "Ed Sheeran",
-        "genre": "Acoustic",
-        "duration": "4:23",
-        "thumbnail": "https://i.ytimg.com/vi/2Vv-BfVoq4g/hqdefault.jpg",
-        "popularity": 0.93
-    },
-    {
-        "id": "RBumgq5yVrA",
-        "title": "Let Her Go",
-        "artist": "Passenger",
-        "genre": "Acoustic",
-        "duration": "4:12",
-        "thumbnail": "https://i.ytimg.com/vi/RBumgq5yVrA/hqdefault.jpg",
-        "popularity": 0.92
-    },
-    {
-        "id": "uJ_1HMAGb4k",
-        "title": "Riptide",
-        "artist": "Vance Joy",
-        "genre": "Acoustic",
-        "duration": "3:24",
-        "thumbnail": "https://i.ytimg.com/vi/uJ_1HMAGb4k/hqdefault.jpg",
-        "popularity": 0.90
-    },
-    {
-        "id": "0yW7w8F2TVA",
-        "title": "Sweater Weather",
-        "artist": "The Neighbourhood",
-        "genre": "Rock",
-        "duration": "4:00",
-        "thumbnail": "https://i.ytimg.com/vi/0yW7w8F2TVA/hqdefault.jpg",
-        "popularity": 0.95
-    },
-    {
-        "id": "bpOSxM0rNPM",
-        "title": "Do I Wanna Know?",
-        "artist": "Arctic Monkeys",
-        "genre": "Rock",
-        "duration": "4:32",
-        "thumbnail": "https://i.ytimg.com/vi/bpOSxM0rNPM/hqdefault.jpg",
-        "popularity": 0.96
-    },
-    {
-        "id": "7wtfhZwyrcc",
-        "title": "Believer",
-        "artist": "Imagine Dragons",
-        "genre": "Rock",
-        "duration": "3:24",
-        "thumbnail": "https://i.ytimg.com/vi/7wtfhZwyrcc/hqdefault.jpg",
-        "popularity": 0.94
-    },
-    {
-        "id": "MV_3Dpw-BRY",
-        "title": "Nightcall",
-        "artist": "Kavinsky",
-        "genre": "Electronic",
-        "duration": "4:19",
-        "thumbnail": "https://i.ytimg.com/vi/MV_3Dpw-BRY/hqdefault.jpg",
-        "popularity": 0.93
-    },
-    {
-        "id": "5NV6Rdv1a3I",
-        "title": "Get Lucky",
-        "artist": "Daft Punk",
-        "genre": "Electronic",
-        "duration": "4:08",
-        "thumbnail": "https://i.ytimg.com/vi/5NV6Rdv1a3I/hqdefault.jpg",
-        "popularity": 0.94
-    },
-    {
-        "id": "PT2_F-1esPk",
-        "title": "Closer",
-        "artist": "The Chainsmokers",
-        "genre": "Electronic",
-        "duration": "4:05",
-        "thumbnail": "https://i.ytimg.com/vi/PT2_F-1esPk/hqdefault.jpg",
-        "popularity": 0.92
-    },
-    {
-        "id": "60ItHLz5WEA",
-        "title": "Faded",
-        "artist": "Alan Walker",
-        "genre": "Electronic",
-        "duration": "3:32",
-        "thumbnail": "https://i.ytimg.com/vi/60ItHLz5WEA/hqdefault.jpg",
-        "popularity": 0.91
-    },
-    {
-        "id": "cr_V3aBffpY",
-        "title": "MONACO",
-        "artist": "Bad Bunny",
-        "genre": "Latin",
-        "duration": "4:27",
-        "thumbnail": "https://i.ytimg.com/vi/cr_V3aBffpY/hqdefault.jpg",
-        "popularity": 0.95
-    },
-    {
-        "id": "5g2hT46g9v4",
-        "title": "lofi hip hop radio - beats to relax/study to",
-        "artist": "Lofi Girl",
-        "genre": "Chill",
-        "duration": "3:45",
-        "thumbnail": "https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg",
-        "popularity": 0.90
-    }
-]
+let app = http.server()
 
-// --- Auth Helper Functions ---
-
-fn extract_token_from_header(auth_header):
-    if len(auth_header) < 8:
-        return ""
-    // Format is "Bearer <token>"
-    let prefix = auth_header.substr(0, 7)
-    if prefix == "Bearer " or prefix == "bearer ":
-        return auth_header.substr(7)
-    return auth_header
+// --- CORS & Authentication Middleware ---
 
 fn authenticate_request(req):
     let headers = req["headers"]
     if !contains(keys(headers), "authorization"):
         return nil
+
     let auth_header = headers["authorization"]
-    let token = extract_token_from_header(auth_header)
-    if len(token) == 0:
+    if len(auth_header) < 8:
         return nil
+
+    let mut token = ""
+    if len(auth_header) > 7:
+        token = auth_header[7:]
+
     let claims = crypto.jwt_decode(token, JWT_SECRET)
     return claims
 
-// --- Initialize HTTP Server ---
-let app = http.server()
+// --- 1. Health Endpoint ---
 
-// --- 1. Healthcheck Endpoint ---
 fn handle_health(req):
     return {
         "status": 200,
         "body": {
             "status": "healthy",
             "service": "nextviper-music-backend",
-            "version": "2.0.0-production",
             "language": "NextViper",
             "runtime": "NextViper 1.0.0 (Apex)",
+            "version": "2.1.0-production-modular",
+            "timestamp": time.now(),
             "usersCount": len(users),
             "playlistsCount": len(playlists),
-            "eventsCount": len(events),
-            "timestamp": time.now()
+            "eventsCount": len(events)
         }
     }
 
 app.get("/health", handle_health)
 app.get("/api/health", handle_health)
 
-// --- 2. Authentication & Email Verification Endpoints (Resend SMTP) ---
+// --- 2. Authentication Endpoints with Resend Quota Fallback ---
 
-let mut PENDING_REGISTRATIONS = {}
-let mut PASSWORD_RESETS = {}
-
-fn build_email_template(title, subtitle, description, otp_code):
-    let p1 = "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"color-scheme\" content=\"dark\"><title>" + title + "</title><style>body{margin:0;padding:0;background:#080808;font-family:Arial,Helvetica,sans-serif;}table{border-spacing:0;border-collapse:collapse;}img{display:block;border:0;max-width:100%;}.wrapper{width:100%;background:#080808;}.container{width:100%;max-width:520px;background:#101010;}.content{padding:32px 34px;}.heading{color:#ffffff;font-size:30px;line-height:1.2;font-weight:800;margin:0;}.description{color:#b8b8b8;font-size:15px;line-height:1.8;}.otp{font-size:36px;font-weight:800;letter-spacing:8px;color:#ffffff;text-align:center;}@media screen and (max-width:600px){.container{width:100%!important;}.content{padding:26px 22px!important;}.heading{font-size:26px!important;}.otp{font-size:30px!important;letter-spacing:5px!important;}}</style></head><body style=\"margin:0;padding:0;background:#080808;\"><table role=\"presentation\" class=\"wrapper\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td align=\"center\" style=\"padding:20px 10px;\"><table role=\"presentation\" class=\"container\" width=\"520\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:520px;background:#101010;\"><tr><td align=\"center\" style=\"padding:30px 24px;background:#080808;\"><img src=\"https://raw.githubusercontent.com/moviesflixlol/viper-music-app/main/assets/images/file_00000000c17081f4bd128998c9675258.png\" alt=\"MUSIC\" width=\"190\" style=\"width:190px;max-width:75%;height:auto;\"></td></tr><tr><td style=\"background:#000000;\"><img src=\"https://raw.githubusercontent.com/moviesflixlol/viper-music-app/main/assets/images/file_0000000006d481f495600a628de89cd7.png\" alt=\"Discover music you love\" width=\"520\" style=\"width:100%;height:auto;display:block;\"></td></tr><tr><td height=\"3\" style=\"background:#e50914;\"></td></tr><tr><td class=\"content\" style=\"padding:32px 34px;\"><p style=\"color:#e50914;font-size:12px;font-weight:700;letter-spacing:2px;margin:0 0 14px;\">" + subtitle + "</p><h1 class=\"heading\" style=\"color:#ffffff;font-size:30px;line-height:1.2;font-weight:800;margin:0 0 18px;\">" + title + "</h1><p class=\"description\" style=\"color:#b8b8b8;font-size:15px;line-height:1.8;margin:0 0 20px;\">" + description + "</p><p style=\"color:#ffffff;font-size:16px;font-weight:700;margin:26px 0 8px;\">Verify your email</p><p class=\"description\" style=\"color:#b8b8b8;font-size:14px;line-height:1.7;margin:0 0 24px;\">Use the verification code below to confirm your request. This code expires in 10 minutes.</p><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin:20px 0 28px;\"><tr><td align=\"center\" style=\"background:#181818;border:1px solid #282828;border-radius:8px;padding:24px 20px;\"><span style=\"display:block;font-size:11px;font-weight:700;letter-spacing:2px;color:#737373;text-transform:uppercase;margin-bottom:8px;\">Verification Code</span><span class=\"otp\" style=\"font-family:\x27Courier New\x27,Courier,monospace;font-size:36px;font-weight:800;letter-spacing:8px;color:#ffffff;display:block;\">" + otp_code + "</span></td></tr></table><p style=\"color:#737373;font-size:13px;line-height:1.6;margin:0 0 20px;\">If you didn\x27t request this code, you can safely ignore this email.</p><hr style=\"border:0;border-top:1px solid #222222;margin:24px 0;\"><p style=\"color:#505050;font-size:12px;line-height:1.6;margin:0;\">Need help? Contact our support team.</p></td></tr><tr><td style=\"padding:24px 34px 30px;background:#0a0a0a;border-top:1px solid #181818;\"><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td style=\"color:#505050;font-size:11px;line-height:1.6;\">&copy; 2026 MUSIC. All rights reserved.</td></tr></table></td></tr></table></td></tr></table></body></html>"
-    return p1
-
-fn send_resend_email(to_email, subject, html_content):
-    let api_key = env.get("RESEND_API_KEY")
-    if api_key == nil or len(str(api_key)) == 0:
-        print("[Resend Warning] RESEND_API_KEY is not set. Email delivery skipped.")
-        return false
-
-    let payload = {
-        "from": "MUSIC <noreply@movieflix.lol>",
-        "to": [to_email],
-        "subject": subject,
-        "html": html_content
-    }
-
-    let res = http.request({
-        "url": "https://api.resend.com/emails",
-        "method": "POST",
-        "headers": {
-            "Authorization": "Bearer " + str(api_key),
-            "Content-Type": "application/json"
-        },
-        "body": json.stringify(payload)
-    })
-
-    print("[Resend API] Sent to:", to_email, "Status:", res.status)
-    if res.status >= 200 and res.status < 300:
-        return true
-    else:
-        print("[Resend API Error]:", res.text)
-        return false
-
-// Register New User (Stage 1: Sends OTP to Email)
+// Register New User
 fn handle_register(req):
     let body = req.json()
     if !contains(keys(body), "email") or !contains(keys(body), "password"):
@@ -363,6 +116,70 @@ fn handle_register(req):
     let otp_code = str(otp_num)
     let password_hash = crypto.hash_password(password)
 
+    let html = email_service.build_email_template(
+        "Your music journey starts here.",
+        "WELCOME TO MUSIC",
+        "Welcome to MUSIC! Discover your favorite artists, explore new sounds, and enjoy playlists made just for you.",
+        otp_code
+    )
+
+    let email_sent = email_service.send_resend_email(email, "Welcome to MUSIC - Verify Your Email", html)
+
+    // Fallback: If Resend SMTP hit daily quota or failed, allow direct signup without OTP!
+    if !email_sent:
+        print("[Resend Quota/Failure] Email delivery failed or daily quota reached. Allowing direct user signup without OTP.")
+
+        let user_id = "usr_" + str(time.now()) + "_" + crypto.random_bytes(4)
+        let new_user = {
+            "id": user_id,
+            "email": email,
+            "name": name,
+            "passwordHash": password_hash,
+            "createdAt": time.now(),
+            "emailVerified": false
+        }
+        append(users, new_user)
+        database.save_db("users.json", users)
+
+        let mut user_genres = {}
+        for g in interests:
+            user_genres[g] = 1.0
+
+        profiles[user_id] = {
+            "userId": user_id,
+            "preferredArtists": {},
+            "preferredGenres": user_genres,
+            "likedTracks": [],
+            "dislikedTracks": [],
+            "history": [],
+            "skippedTracks": []
+        }
+        database.save_db("profiles.json", profiles)
+
+        let token_payload = {
+            "userId": user_id,
+            "email": email,
+            "name": name,
+            "exp": time.now() + 2592000
+        }
+        let token = crypto.jwt_encode(token_payload, JWT_SECRET)
+
+        return {
+            "status": 201,
+            "body": {
+                "success": true,
+                "verificationRequired": false,
+                "token": token,
+                "user": {
+                    "id": user_id,
+                    "email": email,
+                    "name": name
+                },
+                "message": "Account created successfully! Welcome to MUSIC."
+            }
+        }
+
+    // Normal flow: OTP sent to user email
     PENDING_REGISTRATIONS[email] = {
         "email": email,
         "name": name,
@@ -371,9 +188,6 @@ fn handle_register(req):
         "otp": otp_code,
         "expiresAt": time.now() + 600.0
     }
-
-    let html = build_email_template("Your music journey starts here.", "WELCOME TO MUSIC", "Welcome to MUSIC! Discover your favorite artists, explore new sounds, and enjoy playlists made just for you.", otp_code)
-    send_resend_email(email, "Welcome to MUSIC - Verify Your Email", html)
 
     print("Issued verification code for new user:", email)
 
@@ -389,7 +203,7 @@ fn handle_register(req):
 
 app.post("/api/auth/register", handle_register)
 
-// Verify Email with 6-digit OTP (Stage 2: Completes Signup)
+// Verify Email with 6-digit OTP
 fn handle_verify_email(req):
     let body = req.json()
     if !contains(keys(body), "email") or !contains(keys(body), "code"):
@@ -420,7 +234,6 @@ fn handle_verify_email(req):
             "body": { "error": "Invalid verification code. Please check your email and try again." }
         }
 
-    // Register user permanently
     let user_id = "usr_" + str(time.now()) + "_" + crypto.random_bytes(4)
     let new_user = {
         "id": user_id,
@@ -431,9 +244,8 @@ fn handle_verify_email(req):
         "emailVerified": true
     }
     append(users, new_user)
-    save_db("users.json", users)
+    database.save_db("users.json", users)
 
-    // Initialize user profile with selected interests
     let mut user_genres = {}
     for g in pending["interests"]:
         user_genres[g] = 1.0
@@ -447,16 +259,15 @@ fn handle_verify_email(req):
         "history": [],
         "skippedTracks": []
     }
-    save_db("profiles.json", profiles)
+    database.save_db("profiles.json", profiles)
 
     PENDING_REGISTRATIONS[email] = nil
 
-    // Issue JWT Token
     let token_payload = {
         "userId": user_id,
         "email": email,
         "name": pending["name"],
-        "exp": time.now() + 2592000 // 30 days
+        "exp": time.now() + 2592000
     }
     let token = crypto.jwt_encode(token_payload, JWT_SECRET)
 
@@ -476,6 +287,71 @@ fn handle_verify_email(req):
     }
 
 app.post("/api/auth/verify-email", handle_verify_email)
+
+// Login User
+fn handle_login(req):
+    let body = req.json()
+    if !contains(keys(body), "email") or !contains(keys(body), "password"):
+        return {
+            "status": 400,
+            "body": { "error": "Missing email or password" }
+        }
+
+    let email = body["email"]
+    let password = body["password"]
+
+    let mut found_user = nil
+    for u in users:
+        if u["email"] == email:
+            found_user = u
+
+    if found_user == nil:
+        return {
+            "status": 401,
+            "body": { "error": "Invalid email or password" }
+        }
+
+    let valid = crypto.verify_password(password, found_user["passwordHash"])
+    if !valid:
+        return {
+            "status": 401,
+            "body": { "error": "Invalid email or password" }
+        }
+
+    // Migrate any guest_user playlists to this authenticated user!
+    let u_id = found_user["id"]
+    let mut updated_pl = false
+    for pl in playlists:
+        if pl["userId"] == "guest_user":
+            pl["userId"] = u_id
+            updated_pl = true
+    if updated_pl:
+        database.save_db("playlists.json", playlists)
+
+    let token_payload = {
+        "userId": found_user["id"],
+        "email": found_user["email"],
+        "name": found_user["name"],
+        "exp": time.now() + 2592000
+    }
+    let token = crypto.jwt_encode(token_payload, JWT_SECRET)
+
+    print("User logged in successfully:", email)
+
+    return {
+        "status": 200,
+        "body": {
+            "success": true,
+            "token": token,
+            "user": {
+                "id": found_user["id"],
+                "email": found_user["email"],
+                "name": found_user["name"]
+            }
+        }
+    }
+
+app.post("/api/auth/login", handle_login)
 
 // Request Password Reset OTP
 fn handle_forgot_password(req):
@@ -501,14 +377,27 @@ fn handle_forgot_password(req):
     let otp_num = 100000 + (int(time.now() * 1000.0) % 900000)
     let otp_code = str(otp_num)
 
+    let html = email_service.build_email_template(
+        "Reset your password.",
+        "ACCOUNT SECURITY",
+        "Use the verification code below to reset your password. This code expires in 10 minutes.",
+        otp_code
+    )
+
+    let email_sent = email_service.send_resend_email(email, "Password Reset Code - MUSIC", html)
+
+    // If Resend failed (e.g. quota limit reached): return try later error!
+    if !email_sent:
+        return {
+            "status": 429,
+            "body": { "error": "Email service daily limit reached. Please try again later or contact support." }
+        }
+
     PASSWORD_RESETS[email] = {
         "email": email,
         "otp": otp_code,
         "expiresAt": time.now() + 600.0
     }
-
-    let html = build_email_template("Reset your password.", "ACCOUNT SECURITY", "Use the verification code below to reset your password. This code expires in 10 minutes.", otp_code)
-    send_resend_email(email, "Password Reset Code - MUSIC", html)
 
     print("Issued password reset code for:", email)
 
@@ -565,7 +454,7 @@ fn handle_reset_password(req):
         if u["email"] == email:
             u["passwordHash"] = new_hash
 
-    save_db("users.json", users)
+    database.save_db("users.json", users)
     PASSWORD_RESETS[email] = nil
 
     print("Successfully reset password for user:", email)
@@ -603,10 +492,15 @@ fn handle_resend_code(req):
                 "status": 400,
                 "body": { "error": "No pending reset request for this email." }
             }
+        let html = email_service.build_email_template("Reset your password.", "ACCOUNT SECURITY", "Use the verification code below to reset your password. This code expires in 10 minutes.", otp_code)
+        let ok = email_service.send_resend_email(email, "Password Reset Code - MUSIC", html)
+        if !ok:
+            return {
+                "status": 429,
+                "body": { "error": "Email service daily limit reached. Please try again later." }
+            }
         PASSWORD_RESETS[email]["otp"] = otp_code
         PASSWORD_RESETS[email]["expiresAt"] = time.now() + 600.0
-        let html = build_email_template("Reset your password.", "ACCOUNT SECURITY", "Use the verification code below to reset your password. This code expires in 10 minutes.", otp_code)
-        send_resend_email(email, "Password Reset Code - MUSIC", html)
         return {
             "status": 200,
             "body": { "success": true, "message": "A new password reset code has been sent." }
@@ -617,10 +511,37 @@ fn handle_resend_code(req):
                 "status": 400,
                 "body": { "error": "No pending registration for this email." }
             }
+        let html = email_service.build_email_template("Your music journey starts here.", "WELCOME TO MUSIC", "Welcome to MUSIC! Discover your favorite artists, explore new sounds, and enjoy playlists made just for you.", otp_code)
+        let ok = email_service.send_resend_email(email, "Welcome to MUSIC - Verify Your Email", html)
+        if !ok:
+            // Allow direct verification if email service fails
+            let pending = PENDING_REGISTRATIONS[email]
+            let user_id = "usr_" + str(time.now()) + "_" + crypto.random_bytes(4)
+            let new_user = {
+                "id": user_id,
+                "email": pending["email"],
+                "name": pending["name"],
+                "passwordHash": pending["passwordHash"],
+                "createdAt": time.now(),
+                "emailVerified": false
+            }
+            append(users, new_user)
+            database.save_db("users.json", users)
+            PENDING_REGISTRATIONS[email] = nil
+            let token_payload = {
+                "userId": user_id,
+                "email": email,
+                "name": pending["name"],
+                "exp": time.now() + 2592000
+            }
+            let token = crypto.jwt_encode(token_payload, JWT_SECRET)
+            return {
+                "status": 200,
+                "body": { "success": true, "verificationRequired": false, "token": token, "message": "Account activated directly." }
+            }
+
         PENDING_REGISTRATIONS[email]["otp"] = otp_code
         PENDING_REGISTRATIONS[email]["expiresAt"] = time.now() + 600.0
-        let html = build_email_template("Your music journey starts here.", "WELCOME TO MUSIC", "Welcome to MUSIC! Discover your favorite artists, explore new sounds, and enjoy playlists made just for you.", otp_code)
-        send_resend_email(email, "Welcome to MUSIC - Verify Your Email", html)
         return {
             "status": 200,
             "body": { "success": true, "message": "A new verification code has been sent." }
@@ -628,63 +549,7 @@ fn handle_resend_code(req):
 
 app.post("/api/auth/resend-code", handle_resend_code)
 
-// Login User
-fn handle_login(req):
-    let body = req.json()
-    if !contains(keys(body), "email") or !contains(keys(body), "password"):
-        return {
-            "status": 400,
-            "body": { "error": "Missing email or password" }
-        }
-
-    let email = body["email"]
-    let password = body["password"]
-
-    let mut found_user = nil
-    for u in users:
-        if u["email"] == email:
-            found_user = u
-
-    if found_user == nil:
-        return {
-            "status": 401,
-            "body": { "error": "Invalid email or password" }
-        }
-
-    let valid = crypto.verify_password(password, found_user["passwordHash"])
-    if !valid:
-        return {
-            "status": 401,
-            "body": { "error": "Invalid email or password" }
-        }
-
-    // Issue new JWT Token
-    let token_payload = {
-        "userId": found_user["id"],
-        "email": found_user["email"],
-        "name": found_user["name"],
-        "exp": time.now() + 2592000
-    }
-    let token = crypto.jwt_encode(token_payload, JWT_SECRET)
-
-    print("User logged in successfully:", email)
-
-    return {
-        "status": 200,
-        "body": {
-            "success": true,
-            "token": token,
-            "user": {
-                "id": found_user["id"],
-                "email": found_user["email"],
-                "name": found_user["name"]
-            }
-        }
-    }
-
-app.post("/api/auth/login", handle_login)
-
-// Get Current User Profile
+// Current User Profile
 fn handle_me(req):
     let claims = authenticate_request(req)
     if claims == nil:
@@ -719,18 +584,28 @@ fn handle_me(req):
 
 app.get("/api/auth/me", handle_me)
 
-// --- 3. Cloud Playlists Endpoints ---
+// --- 3. Cloud Playlists Endpoints (With ID Preservation & Guest Migration) ---
 
-// List Playlists (Cloud Saved)
+// List Playlists
 fn handle_list_playlists(req):
     let claims = authenticate_request(req)
     let mut user_id = ""
     if claims != nil and contains(keys(claims), "userId"):
         user_id = claims["userId"]
 
+    // Migrate any guest_user playlists to this logged in user
+    if len(user_id) > 0:
+        let mut migrated = false
+        for pl in playlists:
+            if pl["userId"] == "guest_user":
+                pl["userId"] = user_id
+                migrated = true
+        if migrated:
+            database.save_db("playlists.json", playlists)
+
     let mut user_playlists = []
     for pl in playlists:
-        if len(user_id) == 0 or pl["userId"] == user_id or pl["userId"] == "public":
+        if len(user_id) == 0 or pl["userId"] == user_id or pl["userId"] == "guest_user" or pl["userId"] == "public":
             append(user_playlists, pl)
 
     return {
@@ -743,7 +618,7 @@ fn handle_list_playlists(req):
 
 app.get("/api/playlists", handle_list_playlists)
 
-// Create New Playlist
+// Create New Playlist (Accepts ID from client to prevent disassociation)
 fn handle_create_playlist(req):
     let claims = authenticate_request(req)
     let mut user_id = "guest_user"
@@ -754,38 +629,49 @@ fn handle_create_playlist(req):
     if !contains(keys(body), "name") or len(body["name"]) == 0:
         return {
             "status": 400,
-            "body": { "error": "Playlist name is required" }
+            "body": { "error": "Playlist name cannot be empty" }
         }
 
-    let pl_id = "pl_" + str(time.now()) + "_" + crypto.random_bytes(4)
-    let mut desc = "Created by user"
+    let mut desc = "Curated by user"
     if contains(keys(body), "description"):
         desc = body["description"]
 
-    let mut cover_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80"
+    let mut cover = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80"
     if contains(keys(body), "coverUrl") and len(body["coverUrl"]) > 0:
-        cover_url = body["coverUrl"]
+        cover = body["coverUrl"]
 
-    let mut initial_tracks = []
-    if contains(keys(body), "tracks"):
-        initial_tracks = body["tracks"]
+    let mut pl_id = "pl_" + str(time.now()) + "_" + crypto.random_bytes(4)
+    if contains(keys(body), "id") and len(body["id"]) > 0:
+        pl_id = body["id"]
+
+    // Check if playlist with this ID already exists
+    let mut existing_pl = nil
+    for pl in playlists:
+        if pl["id"] == pl_id:
+            existing_pl = pl
+
+    if existing_pl != nil:
+        return {
+            "status": 200,
+            "body": existing_pl
+        }
 
     let new_pl = {
         "id": pl_id,
         "userId": user_id,
         "name": body["name"],
         "description": desc,
-        "coverUrl": cover_url,
-        "tracks": initial_tracks,
+        "coverUrl": cover,
+        "tracks": [],
         "isAutoGenerated": false,
         "createdAt": time.now(),
         "updatedAt": time.now()
     }
 
     append(playlists, new_pl)
-    save_db("playlists.json", playlists)
+    database.save_db("playlists.json", playlists)
 
-    print("Created new cloud playlist:", body["name"], "(" + pl_id + ")")
+    print("Created cloud playlist:", body["name"], "(" + pl_id + ")")
 
     return {
         "status": 201,
@@ -793,23 +679,6 @@ fn handle_create_playlist(req):
     }
 
 app.post("/api/playlists", handle_create_playlist)
-
-// Get Single Playlist
-fn handle_get_playlist(req):
-    let pl_id = req["params"]["id"]
-    for pl in playlists:
-        if pl["id"] == pl_id:
-            return {
-                "status": 200,
-                "body": pl
-            }
-
-    return {
-        "status": 404,
-        "body": { "error": "Playlist not found", "id": pl_id }
-    }
-
-app.get("/api/playlists/:id", handle_get_playlist)
 
 // Add Track to Playlist
 fn handle_add_track_to_playlist(req):
@@ -823,12 +692,6 @@ fn handle_add_track_to_playlist(req):
         }
 
     let track = body["track"]
-    if !contains(keys(track), "id") or !contains(keys(track), "title"):
-        return {
-            "status": 400,
-            "body": { "error": "Track must have 'id' and 'title'" }
-        }
-
     let mut found_pl = nil
     for pl in playlists:
         if pl["id"] == pl_id:
@@ -840,16 +703,16 @@ fn handle_add_track_to_playlist(req):
             "body": { "error": "Playlist not found", "id": pl_id }
         }
 
-    // Check if song already in playlist
-    let mut already_exists = false
+    // Avoid duplicates
+    let mut already_in = false
     for t in found_pl["tracks"]:
         if t["id"] == track["id"]:
-            already_exists = true
+            already_in = true
 
-    if !already_exists:
+    if !already_in:
         append(found_pl["tracks"], track)
         found_pl["updatedAt"] = time.now()
-        save_db("playlists.json", playlists)
+        database.save_db("playlists.json", playlists)
 
     print("Added track to playlist:", track["title"], "->", found_pl["name"])
 
@@ -859,40 +722,6 @@ fn handle_add_track_to_playlist(req):
     }
 
 app.post("/api/playlists/:id/tracks", handle_add_track_to_playlist)
-
-// Remove Track from Playlist
-fn handle_remove_track_from_playlist(req):
-    let pl_id = req["params"]["id"]
-    let track_id = req["params"]["trackId"]
-
-    let mut found_pl = nil
-    for pl in playlists:
-        if pl["id"] == pl_id:
-            found_pl = pl
-
-    if found_pl == nil:
-        return {
-            "status": 404,
-            "body": { "error": "Playlist not found", "id": pl_id }
-        }
-
-    let mut updated_tracks = []
-    for t in found_pl["tracks"]:
-        if t["id"] != track_id:
-            append(updated_tracks, t)
-
-    found_pl["tracks"] = updated_tracks
-    found_pl["updatedAt"] = time.now()
-    save_db("playlists.json", playlists)
-
-    print("Removed track", track_id, "from playlist", found_pl["name"])
-
-    return {
-        "status": 200,
-        "body": found_pl
-    }
-
-app.delete("/api/playlists/:id/tracks/:trackId", handle_remove_track_from_playlist)
 
 // Delete Playlist
 fn handle_delete_playlist(req):
@@ -909,11 +738,11 @@ fn handle_delete_playlist(req):
     if !deleted:
         return {
             "status": 404,
-            "body": { "error": "Playlist not found" }
+            "body": { "error": "Playlist not found", "id": pl_id }
         }
 
     playlists = new_playlists
-    save_db("playlists.json", playlists)
+    database.save_db("playlists.json", playlists)
 
     print("Deleted playlist:", pl_id)
 
@@ -924,57 +753,9 @@ fn handle_delete_playlist(req):
 
 app.delete("/api/playlists/:id", handle_delete_playlist)
 
-// Save Auto-Generated Mix as Permanent Playlist
-fn handle_save_mix(req):
-    let claims = authenticate_request(req)
-    let mut user_id = "guest_user"
-    if claims != nil and contains(keys(claims), "userId"):
-        user_id = claims["userId"]
+// --- 4. Recommendation Telemetry & Category-Aware Feed ---
 
-    let body = req.json()
-    let mut title = "Saved Mix"
-    if contains(keys(body), "title"):
-        title = body["title"]
-
-    let mut desc = "Saved from personalized recommendations"
-    if contains(keys(body), "description"):
-        desc = body["description"]
-
-    let mut cover = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80"
-    if contains(keys(body), "coverUrl") and len(body["coverUrl"]) > 0:
-        cover = body["coverUrl"]
-
-    let mut tracks = []
-    if contains(keys(body), "tracks"):
-        tracks = body["tracks"]
-
-    let pl_id = "pl_saved_" + str(time.now()) + "_" + crypto.random_bytes(3)
-    let permanent_pl = {
-        "id": pl_id,
-        "userId": user_id,
-        "name": title,
-        "description": desc,
-        "coverUrl": cover,
-        "tracks": tracks,
-        "isAutoGenerated": false,
-        "createdAt": time.now(),
-        "updatedAt": time.now()
-    }
-
-    append(playlists, permanent_pl)
-    save_db("playlists.json", playlists)
-
-    print("Saved recommendation mix to permanent playlist:", title)
-
-    return {
-        "status": 201,
-        "body": permanent_pl
-    }
-
-app.post("/api/playlists/save-mix", handle_save_mix)
-
-// --- 4. Recommendation Engine: Telemetry Signal Collector ---
-
+// Telemetry Event
 fn handle_recommendation_event(req):
     let claims = authenticate_request(req)
     let headers = req["headers"]
@@ -993,123 +774,11 @@ fn handle_recommendation_event(req):
             "body": { "error": "Missing 'trackId' or 'eventType'" }
         }
 
-    let track_id = body["trackId"]
-    let event_type = body["eventType"] // play, complete, skip, like, dislike, add_to_playlist
-    let mut duration = 180
-    if contains(keys(body), "duration"):
-        duration = body["duration"]
+    recommendations.record_event(profiles, events, user_id, body)
+    database.save_db("events.json", events)
+    database.save_db("profiles.json", profiles)
 
-    let mut played_seconds = 0
-    if contains(keys(body), "playedSeconds"):
-        played_seconds = body["playedSeconds"]
-
-    let mut artist = ""
-    if contains(keys(body), "artist"):
-        artist = body["artist"]
-
-    let mut genre = "Pop"
-    if contains(keys(body), "genre"):
-        genre = body["genre"]
-
-    // Record Event in telemetry log
-    let event_record = {
-        "id": "evt_" + str(time.now()) + "_" + crypto.random_bytes(3),
-        "userId": user_id,
-        "trackId": track_id,
-        "eventType": event_type,
-        "duration": duration,
-        "playedSeconds": played_seconds,
-        "artist": artist,
-        "genre": genre,
-        "timestamp": time.now()
-    }
-    append(events, event_record)
-    if len(events) > 500:
-        // Keep most recent 500 events
-        let mut trimmed_events = []
-        for i in range(len(events) - 400, len(events)):
-            append(trimmed_events, events[i])
-        events = trimmed_events
-    save_db("events.json", events)
-
-    // Update User Profile if user exists or has session ID
-    if len(user_id) > 0 and user_id != "anonymous":
-        if !contains(keys(profiles), user_id):
-            profiles[user_id] = {
-                "userId": user_id,
-                "preferredArtists": {},
-                "preferredGenres": {},
-                "likedTracks": [],
-                "dislikedTracks": [],
-                "history": [],
-                "skippedTracks": []
-            }
-
-        let user_prof = profiles[user_id]
-
-        if event_type == "like":
-            if !contains(user_prof["likedTracks"], track_id):
-                append(user_prof["likedTracks"], track_id)
-            if len(artist) > 0:
-                let mut cur = 0.5
-                if contains(keys(user_prof["preferredArtists"]), artist):
-                    cur = user_prof["preferredArtists"][artist]
-                user_prof["preferredArtists"][artist] = cur + 0.35
-            if len(genre) > 0:
-                let mut cur_g = 0.5
-                if contains(keys(user_prof["preferredGenres"]), genre):
-                    cur_g = user_prof["preferredGenres"][genre]
-                user_prof["preferredGenres"][genre] = cur_g + 0.35
-
-        elif event_type == "dislike":
-            if !contains(user_prof["dislikedTracks"], track_id):
-                append(user_prof["dislikedTracks"], track_id)
-            if len(artist) > 0 and contains(keys(user_prof["preferredArtists"]), artist):
-                user_prof["preferredArtists"][artist] = user_prof["preferredArtists"][artist] - 0.40
-
-        elif event_type == "add_to_playlist":
-            if len(artist) > 0:
-                let mut cur = 0.5
-                if contains(keys(user_prof["preferredArtists"]), artist):
-                    cur = user_prof["preferredArtists"][artist]
-                user_prof["preferredArtists"][artist] = cur + 0.30
-            if len(genre) > 0:
-                let mut cur_g = 0.5
-                if contains(keys(user_prof["preferredGenres"]), genre):
-                    cur_g = user_prof["preferredGenres"][genre]
-                user_prof["preferredGenres"][genre] = cur_g + 0.30
-
-        elif event_type == "skip":
-            // Distinguish accidental skip (<10s) vs natural change
-            if played_seconds < 10:
-                if !contains(user_prof["skippedTracks"], track_id):
-                    append(user_prof["skippedTracks"], track_id)
-                if len(artist) > 0 and contains(keys(user_prof["preferredArtists"]), artist):
-                    user_prof["preferredArtists"][artist] = user_prof["preferredArtists"][artist] - 0.15
-
-        elif event_type == "play" or event_type == "complete":
-            if played_seconds > 45 or event_type == "complete":
-                if len(artist) > 0:
-                    let mut cur = 0.5
-                    if contains(keys(user_prof["preferredArtists"]), artist):
-                        cur = user_prof["preferredArtists"][artist]
-                    user_prof["preferredArtists"][artist] = cur + 0.15
-                if len(genre) > 0:
-                    let mut cur_g = 0.5
-                    if contains(keys(user_prof["preferredGenres"]), genre):
-                        cur_g = user_prof["preferredGenres"][genre]
-                    user_prof["preferredGenres"][genre] = cur_g + 0.15
-
-            append(user_prof["history"], track_id)
-            if len(user_prof["history"]) > 50:
-                let mut trimmed_hist = []
-                for i in range(len(user_prof["history"]) - 40, len(user_prof["history"])):
-                    append(trimmed_hist, user_prof["history"][i])
-                user_prof["history"] = trimmed_hist
-
-        save_db("profiles.json", profiles)
-
-    print("Logged telemetry event:", event_type, "for track", track_id, "(user: " + user_id + ")")
+    print("Telemetry recorded:", body["eventType"], "for", body["trackId"], "(user: " + user_id + ")")
 
     return {
         "status": 200,
@@ -1118,223 +787,7 @@ fn handle_recommendation_event(req):
 
 app.post("/api/recommendations/event", handle_recommendation_event)
 
-// --- 5. Recommendation Engine: Hybrid Scoring & Feed Generation ---
-
-fn score_candidate(track, user_prof):
-    let track_id = track["id"]
-    let artist = track["artist"]
-    let genre = track["genre"]
-    let base_popularity = track["popularity"]
-
-    // 1. Exclude disliked songs completely
-    if user_prof != nil and contains(user_prof["dislikedTracks"], track_id):
-        return -100.0
-
-    // 2. Weights defined in specification:
-    // 25% user listening affinity
-    // 20% song similarity
-    // 15% artist and genre preference
-    // 15% collaborative recommendations
-    // 10% recent listening context
-    // 10% discovery relevance
-    // 5% popularity and freshness
-
-    let mut user_affinity = 0.5
-    let mut song_similarity = 0.5
-    let mut artist_preference = 0.5
-    let mut recent_context = 0.5
-    let mut discovery = 0.8
-
-    if user_prof != nil:
-        // User listening affinity
-        if contains(user_prof["likedTracks"], track_id):
-            user_affinity = 1.0
-
-        // Genre similarity
-        if contains(keys(user_prof["preferredGenres"]), genre):
-            song_similarity = user_prof["preferredGenres"][genre]
-            if song_similarity > 1.0:
-                song_similarity = 1.0
-
-        // Artist preference
-        if contains(keys(user_prof["preferredArtists"]), artist):
-            artist_preference = user_prof["preferredArtists"][artist]
-            if artist_preference > 1.0:
-                artist_preference = 1.0
-
-        // Discovery bonus: track never heard before
-        if contains(user_prof["history"], track_id):
-            discovery = 0.2
-        else:
-            discovery = 0.9
-
-        // Recent context: affinity to last played track
-        if len(user_prof["history"]) > 0:
-            let last_id = user_prof["history"][len(user_prof["history"]) - 1]
-            if last_id == track_id:
-                recent_context = 0.1 // avoid repeating immediately
-
-    // Collaborative signal: how many times was this track played across all users
-    let mut global_plays = 0
-    for ev in events:
-        if ev["trackId"] == track_id and ev["eventType"] == "play":
-            global_plays = global_plays + 1
-
-    let mut collaborative = 0.5 + (float(global_plays) * 0.05)
-    if collaborative > 1.0:
-        collaborative = 1.0
-
-    let weighted_score = (0.25 * user_affinity) + (0.20 * song_similarity) + (0.15 * artist_preference) + (0.15 * collaborative) + (0.10 * recent_context) + (0.10 * discovery) + (0.05 * base_popularity)
-
-    let mut final_score = weighted_score
-
-    // Penalties
-    if user_prof != nil:
-        // Repeated recently penalty
-        if contains(user_prof["history"], track_id):
-            final_score = final_score * 0.70
-
-        // Quick skip penalty
-        if contains(user_prof["skippedTracks"], track_id):
-            final_score = final_score * 0.60
-
-    return final_score
-
-// --- 5. YouTube Music InnerTube Search & In-Memory TTL Cache ---
-
-fn build_innertube_headers():
-    return {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Origin": "https://music.youtube.com",
-        "Referer": "https://music.youtube.com/"
-    }
-
-fn build_ios_headers():
-    return {
-        "Content-Type": "application/json",
-        "User-Agent": "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)"
-    }
-
-let mut SEARCH_CACHE = {}
-
-fn execute_innertube_search(q, country):
-    let mut gl_code = "IN"
-    if len(country) > 0:
-        gl_code = country
-
-    let body = {
-        "context": {
-            "client": {
-                "clientName": "WEB_REMIX",
-                "clientVersion": "1.20240401.01.00",
-                "hl": "en",
-                "gl": gl_code
-            }
-        },
-        "query": q
-    }
-
-    let res = http.exchange({
-        "url": "https://music.youtube.com/youtubei/v1/search",
-        "method": "POST",
-        "body": json.stringify(body),
-        "headers": build_innertube_headers(),
-        "timeout_ms": 15000
-    })
-
-    let mut results = []
-    if !res["ok"]:
-        return results
-
-    let data = json.parse(res["data"]["body"])
-
-    if contains(keys(data), "contents"):
-        let contents = data["contents"]
-        if contains(keys(contents), "tabbedSearchResultsRenderer"):
-            let tabs = contents["tabbedSearchResultsRenderer"]["tabs"]
-            if len(tabs) > 0:
-                let tab_content = tabs[0]["tabRenderer"]["content"]
-                if contains(keys(tab_content), "sectionListRenderer"):
-                    let sections = tab_content["sectionListRenderer"]["contents"]
-                    for sec in sections {
-                        let sec_keys = keys(sec)
-                        if contains(sec_keys, "itemSectionRenderer"):
-                            let sec_items = sec["itemSectionRenderer"]["contents"]
-                            for item in sec_items {
-                                if contains(keys(item), "musicResponsiveListItemRenderer"):
-                                    let r = item["musicResponsiveListItemRenderer"]
-                                    let flex = r["flexColumns"]
-                                    
-                                    let mut title = ""
-                                    let mut artist = ""
-                                    let mut duration = ""
-                                    let mut video_id = ""
-                                    let mut thumbnail = ""
-
-                                    if len(flex) > 0:
-                                        let col0 = flex[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
-                                        if len(col0) > 0:
-                                            title = col0[0]["text"]
-
-                                    if len(flex) > 1:
-                                        let col1 = flex[1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
-                                        if len(col1) > 2 and (col1[0]["text"] == "Song" or col1[0]["text"] == "Video"):
-                                            artist = col1[2]["text"]
-                                            if len(col1) > 4:
-                                                duration = col1[4]["text"]
-                                        elif len(col1) > 0:
-                                            artist = col1[0]["text"]
-
-                                    if contains(keys(r), "playlistItemData"):
-                                        let pid = r["playlistItemData"]
-                                        if contains(keys(pid), "videoId"):
-                                            video_id = pid["videoId"]
-
-                                    if len(video_id) == 0 and len(flex) > 0:
-                                        let col0 = flex[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
-                                        if len(col0) > 0 and contains(keys(col0[0]), "navigationEndpoint"):
-                                            let ep = col0[0]["navigationEndpoint"]
-                                            if contains(keys(ep), "watchEndpoint"):
-                                                video_id = ep["watchEndpoint"]["videoId"]
-
-                                    if contains(keys(r), "thumbnail"):
-                                        let thumbs = r["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]["thumbnails"]
-                                        if len(thumbs) > 0:
-                                            thumbnail = thumbs[len(thumbs) - 1]["url"]
-
-                                    if len(video_id) > 0:
-                                        append(results, {
-                                            "id": video_id,
-                                            "title": title,
-                                            "artist": artist,
-                                            "duration": duration,
-                                            "thumbnail": thumbnail,
-                                            "genre": "Pop"
-                                        })
-                            }
-                    }
-
-    return results
-
-fn search_youtube_cached(q, country):
-    let now = time.now()
-    let cache_key = q + "_" + country
-    if contains(keys(SEARCH_CACHE), cache_key):
-        let entry = SEARCH_CACHE[cache_key]
-        if (now - entry["timestamp"]) < 600.0:
-            return entry["results"]
-
-    let res = execute_innertube_search(q, country)
-    if len(res) > 0:
-        SEARCH_CACHE[cache_key] = {
-            "timestamp": now,
-            "results": res
-        }
-    return res
-
-// --- 6. Intelligent Recommendation Engine (Country/Location & Dynamic Artists) ---
-
+// Recommendations Feed (Category-Aware: All / Music / Podcasts)
 fn handle_feed(req):
     let claims = authenticate_request(req)
     let headers = req["headers"]
@@ -1355,7 +808,6 @@ fn handle_feed(req):
     if contains(keys(query_map), "category"):
         category = query_map["category"]
 
-    // Detect country / location from query param or geo headers
     let mut country = "IN"
     if contains(keys(query_map), "country") and len(query_map["country"]) > 0:
         country = query_map["country"]
@@ -1364,134 +816,32 @@ fn handle_feed(req):
     elif contains(keys(headers), "x-country-code") and len(headers["x-country-code"]) > 0:
         country = headers["x-country-code"]
 
-    // 1. Generate dynamic search keywords based on category, country, and user interests
-    let mut keywords = []
+    let keywords = recommendations.generate_category_keywords(category, country, user_prof)
 
-    if category == "Podcasts":
-        if country == "US" or country == "GB":
-            keywords = ["top podcasts english", "joe rogan clips", "huberman lab highlights"]
-        else:
-            keywords = ["trending podcasts hindi", "popular english podcasts", "the ranveer show clip"]
-    elif category == "Artists":
-        if country == "US":
-            keywords = ["the weeknd hits", "billie eilish top tracks", "travis scott essentials", "taylor swift hits"]
-        else:
-            keywords = ["arijit singh hits", "yo yo honey singh new song", "sidhu moose wala best", "diljit dosanjh hits"]
-    elif category == "Charts":
-        if country == "US":
-            keywords = ["billboard hot 100", "top 50 usa hits", "viral pop 2026"]
-        else:
-            keywords = ["hot hits hindi top 50", "global viral 50 hits", "party hits punjabi"]
-    else:
-        // Category is "All" or "Music": Personalized hybrid blending with location awareness
-        if user_prof != nil:
-            let pref_artists = user_prof["preferredArtists"]
-            let a_keys = keys(pref_artists)
-            if len(a_keys) > 0:
-                let mut best_artist = a_keys[0]
-                let mut best_score = pref_artists[best_artist]
-                for a in a_keys:
-                    if pref_artists[a] > best_score:
-                        best_artist = a
-                        best_score = pref_artists[a]
-                if best_score > 0.3:
-                    append(keywords, best_artist + " songs")
-
-            let pref_genres = user_prof["preferredGenres"]
-            let g_keys = keys(pref_genres)
-            if len(g_keys) > 0:
-                let mut best_genre = g_keys[0]
-                let mut best_g_score = pref_genres[best_genre]
-                for g in g_keys:
-                    if pref_genres[g] > best_g_score:
-                        best_genre = g
-                        best_g_score = pref_genres[g]
-                if best_g_score > 0.3:
-                    append(keywords, best_genre + " songs")
-
-        // Country-specific diverse rotating seed library
-        let mut seed_pool = []
-        if country == "US":
-            seed_pool = [
-                "billboard hot 100",
-                "top viral pop hits usa",
-                "hip hop rap hits 2026",
-                "trending songs usa",
-                "rnb slow jams essentials",
-                "dark synthwave playlist",
-                "indie rock essentials",
-                "chill acoustic vibes"
-            ]
-        elif country == "GB" or country == "UK":
-            seed_pool = [
-                "official uk top 40",
-                "uk drill hits viral",
-                "british pop essentials",
-                "trending uk music 2026",
-                "acoustic sunset favorites",
-                "dance electronic uk"
-            ]
-        elif country == "CA" or country == "AU":
-            seed_pool = [
-                "top 50 global viral hits",
-                "new music friday",
-                "trending pop dance",
-                "hip hop essentials",
-                "acoustic chill morning"
-            ]
-        else:
-            // Default: India (IN) & South Asia (Rich diverse pool of regions & genres)
-            seed_pool = [
-                "hot hits hindi 2026",
-                "latest bollywood romantic songs",
-                "punjabi party hits 2026",
-                "bollywood dance chartbusters",
-                "arijit singh romantic collection",
-                "karan aujla party hits",
-                "sidhu moose wala best tracks",
-                "diljit dosanjh live vibes",
-                "south viral hits 2026",
-                "anirudh ravichander songs",
-                "hindi lofi acoustic chill",
-                "indie pop india chartbusters",
-                "coke studio viral favorites",
-                "top global viral 50 hits"
-            ]
-
-        // Dynamic Rotation: Rotate seed offset on every single request using time and random nonce
-        let pool_len = len(seed_pool)
-        let time_sec = int(time.now())
-        let start_offset = (time_sec * 3 + int(time.now() * 100.0) % 97) % pool_len
-        for i in range(0, pool_len):
-            let idx = (start_offset + i) % pool_len
-            let seed = seed_pool[idx]
-            if len(keywords) < 4 and !contains(keywords, seed):
-                append(keywords, seed)
-
-    print("Dynamic recommendation queries (country: " + country + ", cat: " + category + "):")
-    for kw in keywords:
-        print("  - " + kw)
-
-    // 2. Fetch tracks for each keyword pool from cached YouTube InnerTube
+    // Execute queries and gather pools
     let mut track_pools = []
-    for kw in keywords:
-        let pool = search_youtube_cached(kw, country)
-        if len(pool) > 0:
-            append(track_pools, pool)
+    let max_keywords = 4
+    let mut kw_count = 0
+    for kw in keywords {
+        if kw_count < max_keywords:
+            let pool = innertube.search_youtube_cached(kw, country)
+            if len(pool) > 0:
+                append(track_pools, pool)
+            kw_count = kw_count + 1
+    }
 
-    // 3. Interleaving & Anti-Artist-Saturation Algorithm
+    // Interleave tracks with anti-artist saturation (max 2 per artist)
     let mut blended_tracks = []
     let mut seen_ids = []
     let mut artist_counts = {}
 
-    // Exclude tracks disliked by the user
     let mut disliked = []
     if user_prof != nil:
         disliked = user_prof["dislikedTracks"]
 
     let max_depth = 12
-    for depth in range(0, max_depth):
-        for pool in track_pools:
+    for depth in range(0, max_depth) {
+        for pool in track_pools {
             if depth < len(pool):
                 let t = pool[depth]
                 let t_id = t["id"]
@@ -1502,22 +852,34 @@ fn handle_feed(req):
                     if contains(keys(artist_counts), t_artist):
                         a_cnt = artist_counts[t_artist]
 
-                    // Maximum 2 tracks per artist across the entire feed!
                     if a_cnt < 2:
                         append(seen_ids, t_id)
                         artist_counts[t_artist] = a_cnt + 1
                         append(blended_tracks, t)
+        }
+    }
 
-    // 4. Safe fallback to CATALOG_TRACKS if YouTube was unreachable
     if len(blended_tracks) == 0:
-        blended_tracks = CATALOG_TRACKS
+        blended_tracks = recommendations.CATALOG_TRACKS
 
     let featured = blended_tracks[0]
 
-    // 5. Dynamic Artist Extraction: Extract fresh unique artists from current feed
+    // Separate recommended and trending so they don't mirror each other!
+    let mut recommended_tracks = []
+    let mut trending_tracks = []
+    for i in range(0, len(blended_tracks)) {
+        if i % 2 == 0:
+            append(recommended_tracks, blended_tracks[i])
+        else:
+            append(trending_tracks, blended_tracks[i])
+    }
+    if len(trending_tracks) == 0:
+        trending_tracks = blended_tracks
+
+    // Extract unique artists
     let mut feed_artists = []
     let mut seen_artists = []
-    for tr in blended_tracks:
+    for tr in blended_tracks {
         let a_name = tr["artist"]
         let a_thumb = tr["thumbnail"]
         if len(a_name) > 0 and !contains(seen_artists, a_name) and a_name != "Various Artists" and a_name != "Song" and a_name != "Video":
@@ -1529,14 +891,15 @@ fn handle_feed(req):
             })
             if len(feed_artists) >= 12:
                 break
+    }
 
-    // 6. Partition into dynamic personalized mixes
+    // Partition into personalized mixes
     let mut daily_mix_tracks = []
     let mut chill_mix_tracks = []
     let mut workout_mix_tracks = []
     let mut gems_mix_tracks = []
 
-    for i in range(0, len(blended_tracks)):
+    for i in range(0, len(blended_tracks)) {
         let item = blended_tracks[i]
         if i % 4 == 0:
             append(daily_mix_tracks, item)
@@ -1546,6 +909,7 @@ fn handle_feed(req):
             append(workout_mix_tracks, item)
         else:
             append(gems_mix_tracks, item)
+    }
 
     let mixes = [
         {
@@ -1553,7 +917,6 @@ fn handle_feed(req):
             "title": "Daily Mix 1",
             "description": "Personalized blend matching your latest musical affinity.",
             "coverUrl": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80",
-            "recommendationReason": "Curated from your active interests",
             "tracks": daily_mix_tracks,
             "isAutoGenerated": true
         },
@@ -1562,7 +925,6 @@ fn handle_feed(req):
             "title": "Chill Rotation",
             "description": "Acoustic vibes, lo-fi beats, and relaxing melodies.",
             "coverUrl": "https://images.unsplash.com/photo-1445985543470-41fdd6ce388d?w=600&q=80",
-            "recommendationReason": "Acoustic & ambient relaxation",
             "tracks": chill_mix_tracks,
             "isAutoGenerated": true
         },
@@ -1571,16 +933,14 @@ fn handle_feed(req):
             "title": "Workout Energy",
             "description": "High-octane power tracks to push your limits.",
             "coverUrl": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=600&q=80",
-            "recommendationReason": "High energy & upbeat rhythms",
             "tracks": workout_mix_tracks,
             "isAutoGenerated": true
         },
         {
             "id": "mix_hidden_gems",
             "title": "Hidden Gems",
-            "description": "Fresh discoveries and new releases for you.",
-            "coverUrl": "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&q=80",
-            "recommendationReason": "Fresh discovery relevance",
+            "description": "Undiscovered sounds tailored to your unique tastes.",
+            "coverUrl": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80",
             "tracks": gems_mix_tracks,
             "isAutoGenerated": true
         }
@@ -1589,19 +949,22 @@ fn handle_feed(req):
     return {
         "status": 200,
         "body": {
-            "featured": featured,
-            "recommendedForYou": blended_tracks,
-            "artists": feed_artists,
+            "category": category,
             "country": country,
+            "featured": featured,
+            "recommendedForYou": recommended_tracks,
+            "trending": trending_tracks,
+            "artists": feed_artists,
             "mixes": mixes,
-            "trending": blended_tracks,
-            "algorithmVersion": "NextViper-RS-Dynamic-3.1"
+            "algorithmVersion": "NextViper-RS-Dynamic-3.2"
         }
     }
 
 app.get("/api/recommendations/feed", handle_feed)
 
-// Search Endpoint (Cached)
+// --- 5. InnerTube Search & Stream Resolver Endpoints ---
+
+// Search Endpoint
 fn handle_search(req):
     let query_map = req["query"]
     let mut q = ""
@@ -1618,7 +981,7 @@ fn handle_search(req):
         }
 
     print("Searching YouTube Music for:", q, "(country: " + country + ")")
-    let results = search_youtube_cached(q, country)
+    let results = innertube.search_youtube_cached(q, country)
 
     return {
         "status": 200,
@@ -1645,76 +1008,19 @@ fn handle_resolve(req):
             "body": { "error": "Missing 'id' query parameter" }
         }
 
-    let body = {
-        "context": {
-            "client": {
-                "clientName": "IOS",
-                "clientVersion": "21.03.1",
-                "deviceMake": "Apple",
-                "deviceModel": "iPhone16,2",
-                "osName": "iOS",
-                "osVersion": "18.2.22C152",
-                "hl": "en",
-                "gl": "US"
-            }
-        },
-        "videoId": video_id
-    }
-
-    let res = http.exchange({
-        "url": "https://www.youtube.com/youtubei/v1/player",
-        "method": "POST",
-        "body": json.stringify(body),
-        "headers": build_ios_headers(),
-        "timeout_ms": 15000
-    })
-
-    if !res["ok"]:
-        return {
-            "status": 502,
-            "body": { "error": "Failed to query YouTube player endpoint" }
-        }
-
-    let data = json.parse(res["data"]["body"])
-    let mut playability = "UNKNOWN"
-    if contains(keys(data), "playabilityStatus"):
-        playability = data["playabilityStatus"]["status"]
-
-    let mut audio_streams = []
-    if contains(keys(data), "streamingData"):
-        let sd = data["streamingData"]
-        if contains(keys(sd), "adaptiveFormats"):
-            let af = sd["adaptiveFormats"]
-            for f in af {
-                let mime = f["mimeType"]
-                if mime.contains("audio"):
-                    let mut stream_info = {
-                        "itag": f["itag"],
-                        "mimeType": mime,
-                        "bitrate": f["bitrate"]
-                    }
-                    if contains(keys(f), "url"):
-                        stream_info["url"] = f["url"]
-                        stream_info["hasDirectUrl"] = true
-                    else:
-                        stream_info["hasDirectUrl"] = false
-                    append(audio_streams, stream_info)
-            }
-
-    return {
-        "status": 200,
-        "body": {
-            "id": video_id,
-            "playability": playability,
-            "audioStreamsCount": len(audio_streams),
-            "audioStreams": audio_streams
-        }
-    }
+    let stream_res = innertube.resolve_innertube_stream(video_id)
+    return stream_res
 
 app.get("/api/resolve", handle_resolve)
 
-// --- Server Startup ---
-let port = 8080
+// --- 6. Start Server ---
+
+let mut port = 8080
 let host = "0.0.0.0"
+
+let env_port = env.get("PORT")
+if env_port != nil and len(str(env_port)) > 0:
+    port = int(env_port)
+
 print("NextViper Production Music Backend listening on http://" + host + ":" + str(port))
 app.listen(port, host, false)
