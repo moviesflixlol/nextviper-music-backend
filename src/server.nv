@@ -959,14 +959,18 @@ fn build_ios_headers():
 
 let mut SEARCH_CACHE = {}
 
-fn execute_innertube_search(q):
+fn execute_innertube_search(q, country):
+    let mut gl_code = "IN"
+    if len(country) > 0:
+        gl_code = country
+
     let body = {
         "context": {
             "client": {
                 "clientName": "WEB_REMIX",
                 "clientVersion": "1.20240401.01.00",
                 "hl": "en",
-                "gl": "IN"
+                "gl": gl_code
             }
         },
         "query": q
@@ -1054,22 +1058,23 @@ fn execute_innertube_search(q):
 
     return results
 
-fn search_youtube_cached(q):
+fn search_youtube_cached(q, country):
     let now = time.now()
-    if contains(keys(SEARCH_CACHE), q):
-        let entry = SEARCH_CACHE[q]
-        if (now - entry["timestamp"]) < 900.0:
+    let cache_key = q + "_" + country
+    if contains(keys(SEARCH_CACHE), cache_key):
+        let entry = SEARCH_CACHE[cache_key]
+        if (now - entry["timestamp"]) < 600.0:
             return entry["results"]
 
-    let res = execute_innertube_search(q)
+    let res = execute_innertube_search(q, country)
     if len(res) > 0:
-        SEARCH_CACHE[q] = {
+        SEARCH_CACHE[cache_key] = {
             "timestamp": now,
             "results": res
         }
     return res
 
-// --- 6. Intelligent Recommendation Engine (User Interest Keywords & Anti-Clumping) ---
+// --- 6. Intelligent Recommendation Engine (Country/Location & Dynamic Artists) ---
 
 fn handle_feed(req):
     let claims = authenticate_request(req)
@@ -1091,17 +1096,35 @@ fn handle_feed(req):
     if contains(keys(query_map), "category"):
         category = query_map["category"]
 
-    // 1. Generate dynamic search keywords based on category and user interests
+    // Detect country / location from query param or geo headers
+    let mut country = "IN"
+    if contains(keys(query_map), "country") and len(query_map["country"]) > 0:
+        country = query_map["country"]
+    elif contains(keys(headers), "cf-ipcountry") and len(headers["cf-ipcountry"]) > 0:
+        country = headers["cf-ipcountry"]
+    elif contains(keys(headers), "x-country-code") and len(headers["x-country-code"]) > 0:
+        country = headers["x-country-code"]
+
+    // 1. Generate dynamic search keywords based on category, country, and user interests
     let mut keywords = []
 
     if category == "Podcasts":
-        keywords = ["trending podcasts hindi", "popular english podcasts", "the ranveer show clip"]
+        if country == "US" or country == "GB":
+            keywords = ["top podcasts english", "joe rogan clips", "huberman lab highlights"]
+        else:
+            keywords = ["trending podcasts hindi", "popular english podcasts", "the ranveer show clip"]
     elif category == "Artists":
-        keywords = ["arijit singh hits", "yo yo honey singh new song", "sidhu moose wala best", "diljit dosanjh hits"]
+        if country == "US":
+            keywords = ["the weeknd hits", "billie eilish top tracks", "travis scott essentials", "taylor swift hits"]
+        else:
+            keywords = ["arijit singh hits", "yo yo honey singh new song", "sidhu moose wala best", "diljit dosanjh hits"]
     elif category == "Charts":
-        keywords = ["hot hits hindi top 50", "global viral 50 hits", "party hits punjabi"]
+        if country == "US":
+            keywords = ["billboard hot 100", "top 50 usa hits", "viral pop 2026"]
+        else:
+            keywords = ["hot hits hindi top 50", "global viral 50 hits", "party hits punjabi"]
     else:
-        // Category is "All" or "Music": personalized hybrid blending
+        // Category is "All" or "Music": Personalized hybrid blending with location awareness
         if user_prof != nil:
             let pref_artists = user_prof["preferredArtists"]
             let a_keys = keys(pref_artists)
@@ -1127,26 +1150,73 @@ fn handle_feed(req):
                 if best_g_score > 0.3:
                     append(keywords, best_genre + " songs")
 
-        // Fill remaining slots with fresh diverse seeds
-        let default_seeds = [
-            "hot hits hindi 2026",
-            "top viral hits global",
-            "punjabi party hits",
-            "bollywood acoustic chill",
-            "hip hop rap hits"
-        ]
-        for seed in default_seeds:
+        // Country-specific diverse rotating seed library
+        let mut seed_pool = []
+        if country == "US":
+            seed_pool = [
+                "billboard hot 100",
+                "top viral pop hits usa",
+                "hip hop rap hits 2026",
+                "trending songs usa",
+                "rnb slow jams essentials",
+                "dark synthwave playlist",
+                "indie rock essentials",
+                "chill acoustic vibes"
+            ]
+        elif country == "GB" or country == "UK":
+            seed_pool = [
+                "official uk top 40",
+                "uk drill hits viral",
+                "british pop essentials",
+                "trending uk music 2026",
+                "acoustic sunset favorites",
+                "dance electronic uk"
+            ]
+        elif country == "CA" or country == "AU":
+            seed_pool = [
+                "top 50 global viral hits",
+                "new music friday",
+                "trending pop dance",
+                "hip hop essentials",
+                "acoustic chill morning"
+            ]
+        else:
+            // Default: India (IN) & South Asia (Rich diverse pool of regions & genres)
+            seed_pool = [
+                "hot hits hindi 2026",
+                "latest bollywood romantic songs",
+                "punjabi party hits 2026",
+                "bollywood dance chartbusters",
+                "arijit singh romantic collection",
+                "karan aujla party hits",
+                "sidhu moose wala best tracks",
+                "diljit dosanjh live vibes",
+                "south viral hits 2026",
+                "anirudh ravichander songs",
+                "hindi lofi acoustic chill",
+                "indie pop india chartbusters",
+                "coke studio viral favorites",
+                "top global viral 50 hits"
+            ]
+
+        // Dynamic Rotation: Rotate seed offset on every single request using time and random nonce
+        let pool_len = len(seed_pool)
+        let time_sec = int(time.now())
+        let start_offset = (time_sec * 3 + int(time.now() * 100.0) % 97) % pool_len
+        for i in range(0, pool_len):
+            let idx = (start_offset + i) % pool_len
+            let seed = seed_pool[idx]
             if len(keywords) < 4 and !contains(keywords, seed):
                 append(keywords, seed)
 
-    print("Dynamic recommendation queries for user (" + user_id + ", cat: " + category + "):")
+    print("Dynamic recommendation queries (country: " + country + ", cat: " + category + "):")
     for kw in keywords:
         print("  - " + kw)
 
     // 2. Fetch tracks for each keyword pool from cached YouTube InnerTube
     let mut track_pools = []
     for kw in keywords:
-        let pool = search_youtube_cached(kw)
+        let pool = search_youtube_cached(kw, country)
         if len(pool) > 0:
             append(track_pools, pool)
 
@@ -1185,7 +1255,23 @@ fn handle_feed(req):
 
     let featured = blended_tracks[0]
 
-    // 5. Partition into dynamic personalized mixes
+    // 5. Dynamic Artist Extraction: Extract fresh unique artists from current feed
+    let mut feed_artists = []
+    let mut seen_artists = []
+    for tr in blended_tracks:
+        let a_name = tr["artist"]
+        let a_thumb = tr["thumbnail"]
+        if len(a_name) > 0 and !contains(seen_artists, a_name) and a_name != "Various Artists" and a_name != "Song" and a_name != "Video":
+            append(seen_artists, a_name)
+            append(feed_artists, {
+                "name": a_name,
+                "imageUrl": a_thumb,
+                "genre": tr["genre"]
+            })
+            if len(feed_artists) >= 12:
+                break
+
+    // 6. Partition into dynamic personalized mixes
     let mut daily_mix_tracks = []
     let mut chill_mix_tracks = []
     let mut workout_mix_tracks = []
@@ -1246,9 +1332,11 @@ fn handle_feed(req):
         "body": {
             "featured": featured,
             "recommendedForYou": blended_tracks,
+            "artists": feed_artists,
+            "country": country,
             "mixes": mixes,
             "trending": blended_tracks,
-            "algorithmVersion": "NextViper-RS-Dynamic-3.0"
+            "algorithmVersion": "NextViper-RS-Dynamic-3.1"
         }
     }
 
@@ -1260,6 +1348,9 @@ fn handle_search(req):
     let mut q = ""
     if contains(keys(query_map), "q"):
         q = query_map["q"]
+    let mut country = "IN"
+    if contains(keys(query_map), "country"):
+        country = query_map["country"]
 
     if len(q) == 0:
         return {
@@ -1267,13 +1358,14 @@ fn handle_search(req):
             "body": { "error": "Missing 'q' query parameter" }
         }
 
-    print("Searching YouTube Music for:", q)
-    let results = search_youtube_cached(q)
+    print("Searching YouTube Music for:", q, "(country: " + country + ")")
+    let results = search_youtube_cached(q, country)
 
     return {
         "status": 200,
         "body": {
             "query": q,
+            "country": country,
             "count": len(results),
             "results": results
         }
