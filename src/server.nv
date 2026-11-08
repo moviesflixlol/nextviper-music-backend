@@ -20,6 +20,12 @@ fn build_innertube_headers():
         "Referer": "https://music.youtube.com/"
     }
 
+fn build_ios_headers():
+    return {
+        "Content-Type": "application/json",
+        "User-Agent": "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)"
+    }
+
 // --- 1. Health Endpoint ---
 fn handle_health(req):
     return {
@@ -189,8 +195,12 @@ fn handle_resolve(req):
     let body = {
         "context": {
             "client": {
-                "clientName": "WEB_REMIX",
-                "clientVersion": "1.20240401.01.00",
+                "clientName": "IOS",
+                "clientVersion": "21.03.1",
+                "deviceMake": "Apple",
+                "deviceModel": "iPhone16,2",
+                "osName": "iOS",
+                "osVersion": "18.2.22C152",
                 "hl": "en",
                 "gl": "US"
             }
@@ -199,10 +209,10 @@ fn handle_resolve(req):
     }
 
     let res = http.exchange({
-        "url": "https://music.youtube.com/youtubei/v1/player",
+        "url": "https://www.youtube.com/youtubei/v1/player",
         "method": "POST",
         "body": json.stringify(body),
-        "headers": build_innertube_headers(),
+        "headers": build_ios_headers(),
         "timeout_ms": 15000
     })
 
