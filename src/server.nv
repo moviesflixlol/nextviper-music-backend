@@ -1,16 +1,1050 @@
-// NextViper Music Backend Server
+// NextViper Music Backend Server - Production Ready
 // Built 100% in pure NextViper
+// Features: InnerTube Search, Stream Resolve, PBKDF2 Auth, JWT, Cloud Playlists, Intelligent Recommendation Engine
 
 import std.io
 import std.http
 import std.json
 import std.time
+import std.fs
+import std.crypto
+import std.math
 
-print("Initializing NextViper Music Backend...")
+print("==================================================")
+print("  Initializing NextViper Production Music Backend  ")
+print("  Runtime: NextViper 1.0.0 (Apex)                  ")
+print("==================================================")
 
+let JWT_SECRET = "nextviper_production_jwt_master_secret_2026_apex_cloud"
+let DATA_DIR = "./data"
+
+if !fs.exists(DATA_DIR):
+    fs.mkdir(DATA_DIR)
+
+// --- Database Helper Functions ---
+
+fn load_db(filename, default_val):
+    let path = DATA_DIR + "/" + filename
+    if !fs.exists(path):
+        fs.write_text(path, json.stringify(default_val))
+        return default_val
+    let content = fs.read_text(path)
+    if len(content) == 0:
+        return default_val
+    return json.parse(content)
+
+fn save_db(filename, data):
+    let path = DATA_DIR + "/" + filename
+    fs.write_text(path, json.stringify(data))
+
+// Initialize Storage Files
+let mut users = load_db("users.json", [])
+let mut playlists = load_db("playlists.json", [])
+let mut events = load_db("events.json", [])
+let mut profiles = load_db("profiles.json", {})
+
+print("Loaded Database:")
+print(" - Users count: " + str(len(users)))
+print(" - Playlists count: " + str(len(playlists)))
+print(" - Events count: " + str(len(events)))
+
+// --- Pre-seeded Curated Song Catalog for Intelligent Recommendation Candidates ---
+let CATALOG_TRACKS = [
+    {
+        "id": "4NRXx6U8ABQ",
+        "title": "Blinding Lights",
+        "artist": "The Weeknd",
+        "genre": "Pop",
+        "duration": "3:20",
+        "thumbnail": "https://i.ytimg.com/vi/4NRXx6U8ABQ/hqdefault.jpg",
+        "popularity": 0.98
+    },
+    {
+        "id": "TUVcZfQe-Kw",
+        "title": "Levitating",
+        "artist": "Dua Lipa",
+        "genre": "Pop",
+        "duration": "3:23",
+        "thumbnail": "https://i.ytimg.com/vi/TUVcZfQe-Kw/hqdefault.jpg",
+        "popularity": 0.95
+    },
+    {
+        "id": "H5v3kku4y6Q",
+        "title": "As It Was",
+        "artist": "Harry Styles",
+        "genre": "Pop",
+        "duration": "2:47",
+        "thumbnail": "https://i.ytimg.com/vi/H5v3kku4y6Q/hqdefault.jpg",
+        "popularity": 0.96
+    },
+    {
+        "id": "ic8j13piAhQ",
+        "title": "Cruel Summer",
+        "artist": "Taylor Swift",
+        "genre": "Pop",
+        "duration": "2:58",
+        "thumbnail": "https://i.ytimg.com/vi/ic8j13piAhQ/hqdefault.jpg",
+        "popularity": 0.97
+    },
+    {
+        "id": "eVli-tstM5E",
+        "title": "Espresso",
+        "artist": "Sabrina Carpenter",
+        "genre": "Pop",
+        "duration": "2:55",
+        "thumbnail": "https://i.ytimg.com/vi/eVli-tstM5E/hqdefault.jpg",
+        "popularity": 0.99
+    },
+    {
+        "id": "V9PVRfjEBTI",
+        "title": "BIRDS OF A FEATHER",
+        "artist": "Billie Eilish",
+        "genre": "Pop",
+        "duration": "3:13",
+        "thumbnail": "https://i.ytimg.com/vi/V9PVRfjEBTI/hqdefault.jpg",
+        "popularity": 0.97
+    },
+    {
+        "id": "H58vbez_m4E",
+        "title": "Not Like Us",
+        "artist": "Kendrick Lamar",
+        "genre": "Hip-Hop",
+        "duration": "4:34",
+        "thumbnail": "https://i.ytimg.com/vi/H58vbez_m4E/hqdefault.jpg",
+        "popularity": 0.98
+    },
+    {
+        "id": "B9synWjqBn8",
+        "title": "FE!N",
+        "artist": "Travis Scott",
+        "genre": "Hip-Hop",
+        "duration": "3:11",
+        "thumbnail": "https://i.ytimg.com/vi/B9synWjqBn8/hqdefault.jpg",
+        "popularity": 0.95
+    },
+    {
+        "id": "uxpDa-c-4Mc",
+        "title": "God's Plan",
+        "artist": "Drake",
+        "genre": "Hip-Hop",
+        "duration": "3:18",
+        "thumbnail": "https://i.ytimg.com/vi/uxpDa-c-4Mc/hqdefault.jpg",
+        "popularity": 0.94
+    },
+    {
+        "id": "2Vv-BfVoq4g",
+        "title": "Perfect",
+        "artist": "Ed Sheeran",
+        "genre": "Acoustic",
+        "duration": "4:23",
+        "thumbnail": "https://i.ytimg.com/vi/2Vv-BfVoq4g/hqdefault.jpg",
+        "popularity": 0.93
+    },
+    {
+        "id": "RBumgq5yVrA",
+        "title": "Let Her Go",
+        "artist": "Passenger",
+        "genre": "Acoustic",
+        "duration": "4:12",
+        "thumbnail": "https://i.ytimg.com/vi/RBumgq5yVrA/hqdefault.jpg",
+        "popularity": 0.92
+    },
+    {
+        "id": "uJ_1HMAGb4k",
+        "title": "Riptide",
+        "artist": "Vance Joy",
+        "genre": "Acoustic",
+        "duration": "3:24",
+        "thumbnail": "https://i.ytimg.com/vi/uJ_1HMAGb4k/hqdefault.jpg",
+        "popularity": 0.90
+    },
+    {
+        "id": "0yW7w8F2TVA",
+        "title": "Sweater Weather",
+        "artist": "The Neighbourhood",
+        "genre": "Rock",
+        "duration": "4:00",
+        "thumbnail": "https://i.ytimg.com/vi/0yW7w8F2TVA/hqdefault.jpg",
+        "popularity": 0.95
+    },
+    {
+        "id": "bpOSxM0rNPM",
+        "title": "Do I Wanna Know?",
+        "artist": "Arctic Monkeys",
+        "genre": "Rock",
+        "duration": "4:32",
+        "thumbnail": "https://i.ytimg.com/vi/bpOSxM0rNPM/hqdefault.jpg",
+        "popularity": 0.96
+    },
+    {
+        "id": "7wtfhZwyrcc",
+        "title": "Believer",
+        "artist": "Imagine Dragons",
+        "genre": "Rock",
+        "duration": "3:24",
+        "thumbnail": "https://i.ytimg.com/vi/7wtfhZwyrcc/hqdefault.jpg",
+        "popularity": 0.94
+    },
+    {
+        "id": "MV_3Dpw-BRY",
+        "title": "Nightcall",
+        "artist": "Kavinsky",
+        "genre": "Electronic",
+        "duration": "4:19",
+        "thumbnail": "https://i.ytimg.com/vi/MV_3Dpw-BRY/hqdefault.jpg",
+        "popularity": 0.93
+    },
+    {
+        "id": "5NV6Rdv1a3I",
+        "title": "Get Lucky",
+        "artist": "Daft Punk",
+        "genre": "Electronic",
+        "duration": "4:08",
+        "thumbnail": "https://i.ytimg.com/vi/5NV6Rdv1a3I/hqdefault.jpg",
+        "popularity": 0.94
+    },
+    {
+        "id": "PT2_F-1esPk",
+        "title": "Closer",
+        "artist": "The Chainsmokers",
+        "genre": "Electronic",
+        "duration": "4:05",
+        "thumbnail": "https://i.ytimg.com/vi/PT2_F-1esPk/hqdefault.jpg",
+        "popularity": 0.92
+    },
+    {
+        "id": "60ItHLz5WEA",
+        "title": "Faded",
+        "artist": "Alan Walker",
+        "genre": "Electronic",
+        "duration": "3:32",
+        "thumbnail": "https://i.ytimg.com/vi/60ItHLz5WEA/hqdefault.jpg",
+        "popularity": 0.91
+    },
+    {
+        "id": "cr_V3aBffpY",
+        "title": "MONACO",
+        "artist": "Bad Bunny",
+        "genre": "Latin",
+        "duration": "4:27",
+        "thumbnail": "https://i.ytimg.com/vi/cr_V3aBffpY/hqdefault.jpg",
+        "popularity": 0.95
+    },
+    {
+        "id": "5g2hT46g9v4",
+        "title": "lofi hip hop radio - beats to relax/study to",
+        "artist": "Lofi Girl",
+        "genre": "Chill",
+        "duration": "3:45",
+        "thumbnail": "https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg",
+        "popularity": 0.90
+    }
+]
+
+// --- Auth Helper Functions ---
+
+fn extract_token_from_header(auth_header):
+    if len(auth_header) < 8:
+        return ""
+    // Format is "Bearer <token>"
+    let prefix = auth_header.substr(0, 7)
+    if prefix == "Bearer " or prefix == "bearer ":
+        return auth_header.substr(7)
+    return auth_header
+
+fn authenticate_request(req):
+    let headers = req["headers"]
+    if !contains(keys(headers), "authorization"):
+        return nil
+    let auth_header = headers["authorization"]
+    let token = extract_token_from_header(auth_header)
+    if len(token) == 0:
+        return nil
+    let claims = crypto.jwt_decode(token, JWT_SECRET)
+    return claims
+
+// --- Initialize HTTP Server ---
 let app = http.server()
 
-// --- Utility Functions ---
+// --- 1. Healthcheck Endpoint ---
+fn handle_health(req):
+    return {
+        "status": 200,
+        "body": {
+            "status": "healthy",
+            "service": "nextviper-music-backend",
+            "version": "2.0.0-production",
+            "language": "NextViper",
+            "runtime": "NextViper 1.0.0 (Apex)",
+            "usersCount": len(users),
+            "playlistsCount": len(playlists),
+            "eventsCount": len(events),
+            "timestamp": time.now()
+        }
+    }
+
+app.get("/health", handle_health)
+app.get("/api/health", handle_health)
+
+// --- 2. Authentication Endpoints ---
+
+// Register New User
+fn handle_register(req):
+    let body = req.json()
+    if !contains(keys(body), "email") or !contains(keys(body), "password"):
+        return {
+            "status": 400,
+            "body": { "error": "Missing required fields: email and password" }
+        }
+
+    let email = body["email"]
+    let password = body["password"]
+    let mut name = "Viper User"
+    if contains(keys(body), "name") and len(body["name"]) > 0:
+        name = body["name"]
+
+    if len(email) < 4 or len(password) < 6:
+        return {
+            "status": 400,
+            "body": { "error": "Email must be valid and password must be at least 6 characters" }
+        }
+
+    // Check if user already exists
+    for u in users:
+        if u["email"] == email:
+            return {
+                "status": 409,
+                "body": { "error": "User with this email already exists" }
+            }
+
+    let user_id = "usr_" + str(time.now()) + "_" + crypto.random_bytes(4)
+    let password_hash = crypto.hash_password(password)
+
+    let new_user = {
+        "id": user_id,
+        "email": email,
+        "name": name,
+        "passwordHash": password_hash,
+        "createdAt": time.now()
+    }
+
+    append(users, new_user)
+    save_db("users.json", users)
+
+    // Initialize user profile
+    profiles[user_id] = {
+        "userId": user_id,
+        "preferredArtists": {},
+        "preferredGenres": {},
+        "likedTracks": [],
+        "dislikedTracks": [],
+        "history": [],
+        "skippedTracks": []
+    }
+    save_db("profiles.json", profiles)
+
+    // Issue JWT Token
+    let token_payload = {
+        "userId": user_id,
+        "email": email,
+        "name": name,
+        "exp": time.now() + 2592000 // 30 days
+    }
+    let token = crypto.jwt_encode(token_payload, JWT_SECRET)
+
+    print("Registered new user:", email, "(" + user_id + ")")
+
+    return {
+        "status": 201,
+        "body": {
+            "success": true,
+            "token": token,
+            "user": {
+                "id": user_id,
+                "email": email,
+                "name": name
+            }
+        }
+    }
+
+app.post("/api/auth/register", handle_register)
+
+// Login User
+fn handle_login(req):
+    let body = req.json()
+    if !contains(keys(body), "email") or !contains(keys(body), "password"):
+        return {
+            "status": 400,
+            "body": { "error": "Missing email or password" }
+        }
+
+    let email = body["email"]
+    let password = body["password"]
+
+    let mut found_user = nil
+    for u in users:
+        if u["email"] == email:
+            found_user = u
+
+    if found_user == nil:
+        return {
+            "status": 401,
+            "body": { "error": "Invalid email or password" }
+        }
+
+    let valid = crypto.verify_password(password, found_user["passwordHash"])
+    if !valid:
+        return {
+            "status": 401,
+            "body": { "error": "Invalid email or password" }
+        }
+
+    // Issue new JWT Token
+    let token_payload = {
+        "userId": found_user["id"],
+        "email": found_user["email"],
+        "name": found_user["name"],
+        "exp": time.now() + 2592000
+    }
+    let token = crypto.jwt_encode(token_payload, JWT_SECRET)
+
+    print("User logged in successfully:", email)
+
+    return {
+        "status": 200,
+        "body": {
+            "success": true,
+            "token": token,
+            "user": {
+                "id": found_user["id"],
+                "email": found_user["email"],
+                "name": found_user["name"]
+            }
+        }
+    }
+
+app.post("/api/auth/login", handle_login)
+
+// Get Current User Profile
+fn handle_me(req):
+    let claims = authenticate_request(req)
+    if claims == nil:
+        return {
+            "status": 401,
+            "body": { "error": "Unauthorized. Invalid or missing token." }
+        }
+
+    let user_id = claims["userId"]
+    let mut current_user = nil
+    for u in users:
+        if u["id"] == user_id:
+            current_user = u
+
+    if current_user == nil:
+        return {
+            "status": 404,
+            "body": { "error": "User not found" }
+        }
+
+    return {
+        "status": 200,
+        "body": {
+            "user": {
+                "id": current_user["id"],
+                "email": current_user["email"],
+                "name": current_user["name"],
+                "createdAt": current_user["createdAt"]
+            }
+        }
+    }
+
+app.get("/api/auth/me", handle_me)
+
+// --- 3. Cloud Playlists Endpoints ---
+
+// List Playlists (Cloud Saved)
+fn handle_list_playlists(req):
+    let claims = authenticate_request(req)
+    let mut user_id = ""
+    if claims != nil and contains(keys(claims), "userId"):
+        user_id = claims["userId"]
+
+    let mut user_playlists = []
+    for pl in playlists:
+        if len(user_id) == 0 or pl["userId"] == user_id or pl["userId"] == "public":
+            append(user_playlists, pl)
+
+    return {
+        "status": 200,
+        "body": {
+            "count": len(user_playlists),
+            "playlists": user_playlists
+        }
+    }
+
+app.get("/api/playlists", handle_list_playlists)
+
+// Create New Playlist
+fn handle_create_playlist(req):
+    let claims = authenticate_request(req)
+    let mut user_id = "guest_user"
+    if claims != nil and contains(keys(claims), "userId"):
+        user_id = claims["userId"]
+
+    let body = req.json()
+    if !contains(keys(body), "name") or len(body["name"]) == 0:
+        return {
+            "status": 400,
+            "body": { "error": "Playlist name is required" }
+        }
+
+    let pl_id = "pl_" + str(time.now()) + "_" + crypto.random_bytes(4)
+    let mut desc = "Created by user"
+    if contains(keys(body), "description"):
+        desc = body["description"]
+
+    let mut cover_url = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80"
+    if contains(keys(body), "coverUrl") and len(body["coverUrl"]) > 0:
+        cover_url = body["coverUrl"]
+
+    let mut initial_tracks = []
+    if contains(keys(body), "tracks"):
+        initial_tracks = body["tracks"]
+
+    let new_pl = {
+        "id": pl_id,
+        "userId": user_id,
+        "name": body["name"],
+        "description": desc,
+        "coverUrl": cover_url,
+        "tracks": initial_tracks,
+        "isAutoGenerated": false,
+        "createdAt": time.now(),
+        "updatedAt": time.now()
+    }
+
+    append(playlists, new_pl)
+    save_db("playlists.json", playlists)
+
+    print("Created new cloud playlist:", body["name"], "(" + pl_id + ")")
+
+    return {
+        "status": 201,
+        "body": new_pl
+    }
+
+app.post("/api/playlists", handle_create_playlist)
+
+// Get Single Playlist
+fn handle_get_playlist(req):
+    let pl_id = req["params"]["id"]
+    for pl in playlists:
+        if pl["id"] == pl_id:
+            return {
+                "status": 200,
+                "body": pl
+            }
+
+    return {
+        "status": 404,
+        "body": { "error": "Playlist not found", "id": pl_id }
+    }
+
+app.get("/api/playlists/:id", handle_get_playlist)
+
+// Add Track to Playlist
+fn handle_add_track_to_playlist(req):
+    let pl_id = req["params"]["id"]
+    let body = req.json()
+
+    if !contains(keys(body), "track"):
+        return {
+            "status": 400,
+            "body": { "error": "Missing 'track' object in request body" }
+        }
+
+    let track = body["track"]
+    if !contains(keys(track), "id") or !contains(keys(track), "title"):
+        return {
+            "status": 400,
+            "body": { "error": "Track must have 'id' and 'title'" }
+        }
+
+    let mut found_pl = nil
+    for pl in playlists:
+        if pl["id"] == pl_id:
+            found_pl = pl
+
+    if found_pl == nil:
+        return {
+            "status": 404,
+            "body": { "error": "Playlist not found", "id": pl_id }
+        }
+
+    // Check if song already in playlist
+    let mut already_exists = false
+    for t in found_pl["tracks"]:
+        if t["id"] == track["id"]:
+            already_exists = true
+
+    if !already_exists:
+        append(found_pl["tracks"], track)
+        found_pl["updatedAt"] = time.now()
+        save_db("playlists.json", playlists)
+
+    print("Added track to playlist:", track["title"], "->", found_pl["name"])
+
+    return {
+        "status": 200,
+        "body": found_pl
+    }
+
+app.post("/api/playlists/:id/tracks", handle_add_track_to_playlist)
+
+// Remove Track from Playlist
+fn handle_remove_track_from_playlist(req):
+    let pl_id = req["params"]["id"]
+    let track_id = req["params"]["trackId"]
+
+    let mut found_pl = nil
+    for pl in playlists:
+        if pl["id"] == pl_id:
+            found_pl = pl
+
+    if found_pl == nil:
+        return {
+            "status": 404,
+            "body": { "error": "Playlist not found", "id": pl_id }
+        }
+
+    let mut updated_tracks = []
+    for t in found_pl["tracks"]:
+        if t["id"] != track_id:
+            append(updated_tracks, t)
+
+    found_pl["tracks"] = updated_tracks
+    found_pl["updatedAt"] = time.now()
+    save_db("playlists.json", playlists)
+
+    print("Removed track", track_id, "from playlist", found_pl["name"])
+
+    return {
+        "status": 200,
+        "body": found_pl
+    }
+
+app.delete("/api/playlists/:id/tracks/:trackId", handle_remove_track_from_playlist)
+
+// Delete Playlist
+fn handle_delete_playlist(req):
+    let pl_id = req["params"]["id"]
+    let mut new_playlists = []
+    let mut deleted = false
+
+    for pl in playlists:
+        if pl["id"] == pl_id:
+            deleted = true
+        else:
+            append(new_playlists, pl)
+
+    if !deleted:
+        return {
+            "status": 404,
+            "body": { "error": "Playlist not found" }
+        }
+
+    playlists = new_playlists
+    save_db("playlists.json", playlists)
+
+    print("Deleted playlist:", pl_id)
+
+    return {
+        "status": 200,
+        "body": { "success": true, "deleted": pl_id }
+    }
+
+app.delete("/api/playlists/:id", handle_delete_playlist)
+
+// Save Auto-Generated Mix as Permanent Playlist
+fn handle_save_mix(req):
+    let claims = authenticate_request(req)
+    let mut user_id = "guest_user"
+    if claims != nil and contains(keys(claims), "userId"):
+        user_id = claims["userId"]
+
+    let body = req.json()
+    let mut title = "Saved Mix"
+    if contains(keys(body), "title"):
+        title = body["title"]
+
+    let mut desc = "Saved from personalized recommendations"
+    if contains(keys(body), "description"):
+        desc = body["description"]
+
+    let mut cover = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80"
+    if contains(keys(body), "coverUrl") and len(body["coverUrl"]) > 0:
+        cover = body["coverUrl"]
+
+    let mut tracks = []
+    if contains(keys(body), "tracks"):
+        tracks = body["tracks"]
+
+    let pl_id = "pl_saved_" + str(time.now()) + "_" + crypto.random_bytes(3)
+    let permanent_pl = {
+        "id": pl_id,
+        "userId": user_id,
+        "name": title,
+        "description": desc,
+        "coverUrl": cover,
+        "tracks": tracks,
+        "isAutoGenerated": false,
+        "createdAt": time.now(),
+        "updatedAt": time.now()
+    }
+
+    append(playlists, permanent_pl)
+    save_db("playlists.json", playlists)
+
+    print("Saved recommendation mix to permanent playlist:", title)
+
+    return {
+        "status": 201,
+        "body": permanent_pl
+    }
+
+app.post("/api/playlists/save-mix", handle_save_mix)
+
+// --- 4. Recommendation Engine: Telemetry Signal Collector ---
+
+fn handle_recommendation_event(req):
+    let claims = authenticate_request(req)
+    let mut user_id = "anonymous"
+    if claims != nil and contains(keys(claims), "userId"):
+        user_id = claims["userId"]
+
+    let body = req.json()
+    if !contains(keys(body), "trackId") or !contains(keys(body), "eventType"):
+        return {
+            "status": 400,
+            "body": { "error": "Missing 'trackId' or 'eventType'" }
+        }
+
+    let track_id = body["trackId"]
+    let event_type = body["eventType"] // play, complete, skip, like, dislike, add_to_playlist
+    let mut duration = 180
+    if contains(keys(body), "duration"):
+        duration = body["duration"]
+
+    let mut played_seconds = 0
+    if contains(keys(body), "playedSeconds"):
+        played_seconds = body["playedSeconds"]
+
+    let mut artist = ""
+    if contains(keys(body), "artist"):
+        artist = body["artist"]
+
+    let mut genre = "Pop"
+    if contains(keys(body), "genre"):
+        genre = body["genre"]
+
+    // Record Event in telemetry log
+    let event_record = {
+        "id": "evt_" + str(time.now()) + "_" + crypto.random_bytes(3),
+        "userId": user_id,
+        "trackId": track_id,
+        "eventType": event_type,
+        "duration": duration,
+        "playedSeconds": played_seconds,
+        "artist": artist,
+        "genre": genre,
+        "timestamp": time.now()
+    }
+    append(events, event_record)
+    if len(events) > 500:
+        // Keep most recent 500 events
+        let mut trimmed_events = []
+        for i in range(len(events) - 400, len(events)):
+            append(trimmed_events, events[i])
+        events = trimmed_events
+    save_db("events.json", events)
+
+    // Update User Profile if user exists
+    if user_id != "anonymous":
+        if !contains(keys(profiles), user_id):
+            profiles[user_id] = {
+                "userId": user_id,
+                "preferredArtists": {},
+                "preferredGenres": {},
+                "likedTracks": [],
+                "dislikedTracks": [],
+                "history": [],
+                "skippedTracks": []
+            }
+
+        let user_prof = profiles[user_id]
+
+        if event_type == "like":
+            if !contains(user_prof["likedTracks"], track_id):
+                append(user_prof["likedTracks"], track_id)
+            if len(artist) > 0:
+                let mut cur = 0.5
+                if contains(keys(user_prof["preferredArtists"]), artist):
+                    cur = user_prof["preferredArtists"][artist]
+                user_prof["preferredArtists"][artist] = cur + 0.35
+            if len(genre) > 0:
+                let mut cur_g = 0.5
+                if contains(keys(user_prof["preferredGenres"]), genre):
+                    cur_g = user_prof["preferredGenres"][genre]
+                user_prof["preferredGenres"][genre] = cur_g + 0.35
+
+        elif event_type == "dislike":
+            if !contains(user_prof["dislikedTracks"], track_id):
+                append(user_prof["dislikedTracks"], track_id)
+            if len(artist) > 0 and contains(keys(user_prof["preferredArtists"]), artist):
+                user_prof["preferredArtists"][artist] = user_prof["preferredArtists"][artist] - 0.40
+
+        elif event_type == "add_to_playlist":
+            if len(artist) > 0:
+                let mut cur = 0.5
+                if contains(keys(user_prof["preferredArtists"]), artist):
+                    cur = user_prof["preferredArtists"][artist]
+                user_prof["preferredArtists"][artist] = cur + 0.30
+            if len(genre) > 0:
+                let mut cur_g = 0.5
+                if contains(keys(user_prof["preferredGenres"]), genre):
+                    cur_g = user_prof["preferredGenres"][genre]
+                user_prof["preferredGenres"][genre] = cur_g + 0.30
+
+        elif event_type == "skip":
+            // Distinguish accidental skip (<10s) vs natural change
+            if played_seconds < 10:
+                if !contains(user_prof["skippedTracks"], track_id):
+                    append(user_prof["skippedTracks"], track_id)
+                if len(artist) > 0 and contains(keys(user_prof["preferredArtists"]), artist):
+                    user_prof["preferredArtists"][artist] = user_prof["preferredArtists"][artist] - 0.15
+
+        elif event_type == "play" or event_type == "complete":
+            if played_seconds > 45 or event_type == "complete":
+                if len(artist) > 0:
+                    let mut cur = 0.5
+                    if contains(keys(user_prof["preferredArtists"]), artist):
+                        cur = user_prof["preferredArtists"][artist]
+                    user_prof["preferredArtists"][artist] = cur + 0.15
+                if len(genre) > 0:
+                    let mut cur_g = 0.5
+                    if contains(keys(user_prof["preferredGenres"]), genre):
+                        cur_g = user_prof["preferredGenres"][genre]
+                    user_prof["preferredGenres"][genre] = cur_g + 0.15
+
+            append(user_prof["history"], track_id)
+            if len(user_prof["history"]) > 50:
+                let mut trimmed_hist = []
+                for i in range(len(user_prof["history"]) - 40, len(user_prof["history"])):
+                    append(trimmed_hist, user_prof["history"][i])
+                user_prof["history"] = trimmed_hist
+
+        save_db("profiles.json", profiles)
+
+    print("Logged telemetry event:", event_type, "for track", track_id, "(user: " + user_id + ")")
+
+    return {
+        "status": 200,
+        "body": { "success": true, "message": "Signal recorded" }
+    }
+
+app.post("/api/recommendations/event", handle_recommendation_event)
+
+// --- 5. Recommendation Engine: Hybrid Scoring & Feed Generation ---
+
+fn score_candidate(track, user_prof):
+    let track_id = track["id"]
+    let artist = track["artist"]
+    let genre = track["genre"]
+    let base_popularity = track["popularity"]
+
+    // 1. Exclude disliked songs completely
+    if user_prof != nil and contains(user_prof["dislikedTracks"], track_id):
+        return -100.0
+
+    // 2. Weights defined in specification:
+    // 25% user listening affinity
+    // 20% song similarity
+    // 15% artist and genre preference
+    // 15% collaborative recommendations
+    // 10% recent listening context
+    // 10% discovery relevance
+    // 5% popularity and freshness
+
+    let mut user_affinity = 0.5
+    let mut song_similarity = 0.5
+    let mut artist_preference = 0.5
+    let mut recent_context = 0.5
+    let mut discovery = 0.8
+
+    if user_prof != nil:
+        // User listening affinity
+        if contains(user_prof["likedTracks"], track_id):
+            user_affinity = 1.0
+
+        // Genre similarity
+        if contains(keys(user_prof["preferredGenres"]), genre):
+            song_similarity = user_prof["preferredGenres"][genre]
+            if song_similarity > 1.0:
+                song_similarity = 1.0
+
+        // Artist preference
+        if contains(keys(user_prof["preferredArtists"]), artist):
+            artist_preference = user_prof["preferredArtists"][artist]
+            if artist_preference > 1.0:
+                artist_preference = 1.0
+
+        // Discovery bonus: track never heard before
+        if contains(user_prof["history"], track_id):
+            discovery = 0.2
+        else:
+            discovery = 0.9
+
+        // Recent context: affinity to last played track
+        if len(user_prof["history"]) > 0:
+            let last_id = user_prof["history"][len(user_prof["history"]) - 1]
+            if last_id == track_id:
+                recent_context = 0.1 // avoid repeating immediately
+
+    // Collaborative signal: how many times was this track played across all users
+    let mut global_plays = 0
+    for ev in events:
+        if ev["trackId"] == track_id and ev["eventType"] == "play":
+            global_plays = global_plays + 1
+
+    let mut collaborative = 0.5 + (float(global_plays) * 0.05)
+    if collaborative > 1.0:
+        collaborative = 1.0
+
+    let weighted_score = (0.25 * user_affinity) + (0.20 * song_similarity) + (0.15 * artist_preference) + (0.15 * collaborative) + (0.10 * recent_context) + (0.10 * discovery) + (0.05 * base_popularity)
+
+    let mut final_score = weighted_score
+
+    // Penalties
+    if user_prof != nil:
+        // Repeated recently penalty
+        if contains(user_prof["history"], track_id):
+            final_score = final_score * 0.70
+
+        // Quick skip penalty
+        if contains(user_prof["skippedTracks"], track_id):
+            final_score = final_score * 0.60
+
+    return final_score
+
+// Feed Recommendation Endpoint
+fn handle_feed(req):
+    let claims = authenticate_request(req)
+    let mut user_id = ""
+    if claims != nil and contains(keys(claims), "userId"):
+        user_id = claims["userId"]
+
+    let mut user_prof = nil
+    if len(user_id) > 0 and contains(keys(profiles), user_id):
+        user_prof = profiles[user_id]
+
+    // Score all catalog tracks
+    let mut scored_tracks = []
+    for t in CATALOG_TRACKS:
+        let sc = score_candidate(t, user_prof)
+        if sc > -50.0:
+            append(scored_tracks, {
+                "score": sc,
+                "track": t
+            })
+
+    // Sort by score descending (simple bubble sort for candidates)
+    let n = len(scored_tracks)
+    for i in range(0, n):
+        for j in range(0, n - 1 - i):
+            if scored_tracks[j]["score"] < scored_tracks[j + 1]["score"]:
+                let temp = scored_tracks[j]
+                scored_tracks[j] = scored_tracks[j + 1]
+                scored_tracks[j + 1] = temp
+
+    let mut ranked_tracks = []
+    for item in scored_tracks:
+        append(ranked_tracks, item["track"])
+
+    // Spotlight featured hero song
+    let mut featured = CATALOG_TRACKS[0]
+    if len(ranked_tracks) > 0:
+        featured = ranked_tracks[0]
+
+    // Automatic Personalized Mixes Generation
+    let mut daily_mix_tracks = []
+    let mut chill_mix_tracks = []
+    let mut workout_mix_tracks = []
+    let mut gems_mix_tracks = []
+
+    for t in CATALOG_TRACKS:
+        let g = t["genre"]
+        if g == "Pop" or g == "Rock":
+            append(daily_mix_tracks, t)
+        if g == "Acoustic" or g == "Chill":
+            append(chill_mix_tracks, t)
+        if g == "Hip-Hop" or g == "Electronic" or g == "Rock":
+            append(workout_mix_tracks, t)
+        if t["popularity"] < 0.94:
+            append(gems_mix_tracks, t)
+
+    let mixes = [
+        {
+            "id": "mix_daily_1",
+            "title": "Daily Mix 1",
+            "description": "Custom blend of your favorite artists and fresh weekly discoveries.",
+            "coverUrl": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80",
+            "recommendationReason": "Based on your top listening affinity",
+            "tracks": daily_mix_tracks,
+            "isAutoGenerated": true
+        },
+        {
+            "id": "mix_chill_rotation",
+            "title": "Chill Rotation",
+            "description": "Acoustic vibes, lo-fi beats, and relaxing melodies.",
+            "coverUrl": "https://images.unsplash.com/photo-1445985543470-41fdd6ce388d?w=600&q=80",
+            "recommendationReason": "Acoustic & ambient relaxation",
+            "tracks": chill_mix_tracks,
+            "isAutoGenerated": true
+        },
+        {
+            "id": "mix_workout_energy",
+            "title": "Workout Energy",
+            "description": "High-octane electronic, trap, and power tracks to push your limits.",
+            "coverUrl": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=600&q=80",
+            "recommendationReason": "High energy & upbeat rhythms",
+            "tracks": workout_mix_tracks,
+            "isAutoGenerated": true
+        },
+        {
+            "id": "mix_hidden_gems",
+            "title": "Hidden Gems",
+            "description": "Underrated masterpieces and high-affinity underground tracks.",
+            "coverUrl": "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&q=80",
+            "recommendationReason": "Fresh discovery relevance",
+            "tracks": gems_mix_tracks,
+            "isAutoGenerated": true
+        }
+    ]
+
+    return {
+        "status": 200,
+        "body": {
+            "featured": featured,
+            "recommendedForYou": ranked_tracks,
+            "mixes": mixes,
+            "trending": CATALOG_TRACKS,
+            "algorithmVersion": "NextViper-RS-2.0"
+        }
+    }
+
+app.get("/api/recommendations/feed", handle_feed)
+
+// --- 6. YouTube Music InnerTube Search & Stream Proxy ---
 
 fn build_innertube_headers():
     return {
@@ -26,24 +1060,7 @@ fn build_ios_headers():
         "User-Agent": "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)"
     }
 
-// --- 1. Health Endpoint ---
-fn handle_health(req):
-    return {
-        "status": 200,
-        "body": {
-            "status": "healthy",
-            "service": "nextviper-music-backend",
-            "version": "1.0.0",
-            "language": "NextViper",
-            "runtime": "NextViper 1.0.0 (Apex)",
-            "timestamp": time.now()
-        }
-    }
-
-app.get("/health", handle_health)
-app.get("/api/health", handle_health)
-
-// --- 2. YouTube Music Search Endpoint ---
+// Search Endpoint
 fn handle_search(req):
     let query_map = req["query"]
     let mut q = ""
@@ -53,9 +1070,7 @@ fn handle_search(req):
     if len(q) == 0:
         return {
             "status": 400,
-            "body": {
-                "error": "Missing 'q' query parameter (e.g. /api/search?q=song+name)"
-            }
+            "body": { "error": "Missing 'q' query parameter" }
         }
 
     print("Searching YouTube Music for:", q)
@@ -83,10 +1098,7 @@ fn handle_search(req):
     if !res["ok"]:
         return {
             "status": 502,
-            "body": {
-                "error": "Failed to reach YouTube Music InnerTube backend",
-                "details": res["error"]
-            }
+            "body": { "error": "Failed to reach YouTube Music backend" }
         }
 
     let data = json.parse(res["data"]["body"])
@@ -102,8 +1114,6 @@ fn handle_search(req):
                     let sections = tab_content["sectionListRenderer"]["contents"]
                     for sec in sections {
                         let sec_keys = keys(sec)
-                        
-                        // Handle standard itemSectionRenderer
                         if contains(sec_keys, "itemSectionRenderer"):
                             let sec_items = sec["itemSectionRenderer"]["contents"]
                             for item in sec_items {
@@ -117,13 +1127,11 @@ fn handle_search(req):
                                     let mut video_id = ""
                                     let mut thumbnail = ""
 
-                                    // Extract Title
                                     if len(flex) > 0:
                                         let col0 = flex[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
                                         if len(col0) > 0:
                                             title = col0[0]["text"]
 
-                                    // Extract Artist and Duration
                                     if len(flex) > 1:
                                         let col1 = flex[1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
                                         if len(col1) > 2 and (col1[0]["text"] == "Song" or col1[0]["text"] == "Video"):
@@ -133,13 +1141,11 @@ fn handle_search(req):
                                         elif len(col1) > 0:
                                             artist = col1[0]["text"]
 
-                                    // Extract Video ID directly from playlistItemData
                                     if contains(keys(r), "playlistItemData"):
                                         let pid = r["playlistItemData"]
                                         if contains(keys(pid), "videoId"):
                                             video_id = pid["videoId"]
 
-                                    // Fallback to navigationEndpoint if playlistItemData is missing
                                     if len(video_id) == 0 and len(flex) > 0:
                                         let col0 = flex[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
                                         if len(col0) > 0 and contains(keys(col0[0]), "navigationEndpoint"):
@@ -147,7 +1153,6 @@ fn handle_search(req):
                                             if contains(keys(ep), "watchEndpoint"):
                                                 video_id = ep["watchEndpoint"]["videoId"]
 
-                                    // Extract Thumbnail URL
                                     if contains(keys(r), "thumbnail"):
                                         let thumbs = r["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]["thumbnails"]
                                         if len(thumbs) > 0:
@@ -175,7 +1180,7 @@ fn handle_search(req):
 
 app.get("/api/search", handle_search)
 
-// --- 3. Track Stream Resolution Endpoint ---
+// Track Stream Resolution Endpoint
 fn handle_resolve(req):
     let query_map = req["query"]
     let mut video_id = ""
@@ -185,12 +1190,8 @@ fn handle_resolve(req):
     if len(video_id) == 0:
         return {
             "status": 400,
-            "body": {
-                "error": "Missing 'id' query parameter (e.g. /api/resolve?id=videoId)"
-            }
+            "body": { "error": "Missing 'id' query parameter" }
         }
-
-    print("Resolving stream metadata for video:", video_id)
 
     let body = {
         "context": {
@@ -219,10 +1220,7 @@ fn handle_resolve(req):
     if !res["ok"]:
         return {
             "status": 502,
-            "body": {
-                "error": "Failed to query YouTube player endpoint",
-                "details": res["error"]
-            }
+            "body": { "error": "Failed to query YouTube player endpoint" }
         }
 
     let data = json.parse(res["data"]["body"])
@@ -263,8 +1261,8 @@ fn handle_resolve(req):
 
 app.get("/api/resolve", handle_resolve)
 
-// --- Start Server ---
+// --- Server Startup ---
 let port = 8080
 let host = "0.0.0.0"
-print("NextViper Music Backend Server listening on http://" + host + ":" + str(port))
+print("NextViper Production Music Backend listening on http://" + host + ":" + str(port))
 app.listen(port, host, false)
