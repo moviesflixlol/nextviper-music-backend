@@ -1,0 +1,4 @@
+# NextViper cache and temporary files
+*.tmp
+build/
+.env

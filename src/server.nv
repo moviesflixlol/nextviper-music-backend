@@ -1,0 +1,260 @@
+// NextViper Music Backend Server
+// Built 100% in pure NextViper
+
+import std.io
+import std.http
+import std.json
+import std.time
+
+print("Initializing NextViper Music Backend...")
+
+let app = http.server()
+
+// --- Utility Functions ---
+
+fn build_innertube_headers():
+    return {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Origin": "https://music.youtube.com",
+        "Referer": "https://music.youtube.com/"
+    }
+
+// --- 1. Health Endpoint ---
+fn handle_health(req):
+    return {
+        "status": 200,
+        "body": {
+            "status": "healthy",
+            "service": "nextviper-music-backend",
+            "version": "1.0.0",
+            "language": "NextViper",
+            "runtime": "NextViper 1.0.0 (Apex)",
+            "timestamp": time.now()
+        }
+    }
+
+app.get("/health", handle_health)
+app.get("/api/health", handle_health)
+
+// --- 2. YouTube Music Search Endpoint ---
+fn handle_search(req):
+    let query_map = req["query"]
+    let mut q = ""
+    if contains(keys(query_map), "q"):
+        q = query_map["q"]
+
+    if len(q) == 0:
+        return {
+            "status": 400,
+            "body": {
+                "error": "Missing 'q' query parameter (e.g. /api/search?q=song+name)"
+            }
+        }
+
+    print("Searching YouTube Music for:", q)
+
+    let body = {
+        "context": {
+            "client": {
+                "clientName": "WEB_REMIX",
+                "clientVersion": "1.20240401.01.00",
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "query": q
+    }
+
+    let res = http.exchange({
+        "url": "https://music.youtube.com/youtubei/v1/search",
+        "method": "POST",
+        "body": json.stringify(body),
+        "headers": build_innertube_headers(),
+        "timeout_ms": 15000
+    })
+
+    if !res["ok"]:
+        return {
+            "status": 502,
+            "body": {
+                "error": "Failed to reach YouTube Music InnerTube backend",
+                "details": res["error"]
+            }
+        }
+
+    let data = json.parse(res["data"]["body"])
+    let mut results = []
+
+    if contains(keys(data), "contents"):
+        let contents = data["contents"]
+        if contains(keys(contents), "tabbedSearchResultsRenderer"):
+            let tabs = contents["tabbedSearchResultsRenderer"]["tabs"]
+            if len(tabs) > 0:
+                let tab_content = tabs[0]["tabRenderer"]["content"]
+                if contains(keys(tab_content), "sectionListRenderer"):
+                    let sections = tab_content["sectionListRenderer"]["contents"]
+                    for sec in sections {
+                        let sec_keys = keys(sec)
+                        
+                        // Handle standard itemSectionRenderer
+                        if contains(sec_keys, "itemSectionRenderer"):
+                            let sec_items = sec["itemSectionRenderer"]["contents"]
+                            for item in sec_items {
+                                if contains(keys(item), "musicResponsiveListItemRenderer"):
+                                    let r = item["musicResponsiveListItemRenderer"]
+                                    let flex = r["flexColumns"]
+                                    
+                                    let mut title = ""
+                                    let mut artist = ""
+                                    let mut duration = ""
+                                    let mut video_id = ""
+                                    let mut thumbnail = ""
+
+                                    // Extract Title
+                                    if len(flex) > 0:
+                                        let col0 = flex[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
+                                        if len(col0) > 0:
+                                            title = col0[0]["text"]
+
+                                    // Extract Artist and Duration
+                                    if len(flex) > 1:
+                                        let col1 = flex[1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
+                                        if len(col1) > 2 and (col1[0]["text"] == "Song" or col1[0]["text"] == "Video"):
+                                            artist = col1[2]["text"]
+                                            if len(col1) > 4:
+                                                duration = col1[4]["text"]
+                                        elif len(col1) > 0:
+                                            artist = col1[0]["text"]
+
+                                    // Extract Video ID directly from playlistItemData
+                                    if contains(keys(r), "playlistItemData"):
+                                        let pid = r["playlistItemData"]
+                                        if contains(keys(pid), "videoId"):
+                                            video_id = pid["videoId"]
+
+                                    // Fallback to navigationEndpoint if playlistItemData is missing
+                                    if len(video_id) == 0 and len(flex) > 0:
+                                        let col0 = flex[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
+                                        if len(col0) > 0 and contains(keys(col0[0]), "navigationEndpoint"):
+                                            let ep = col0[0]["navigationEndpoint"]
+                                            if contains(keys(ep), "watchEndpoint"):
+                                                video_id = ep["watchEndpoint"]["videoId"]
+
+                                    // Extract Thumbnail URL
+                                    if contains(keys(r), "thumbnail"):
+                                        let thumbs = r["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]["thumbnails"]
+                                        if len(thumbs) > 0:
+                                            thumbnail = thumbs[len(thumbs) - 1]["url"]
+
+                                    if len(video_id) > 0:
+                                        append(results, {
+                                            "id": video_id,
+                                            "title": title,
+                                            "artist": artist,
+                                            "duration": duration,
+                                            "thumbnail": thumbnail
+                                        })
+                            }
+                    }
+
+    return {
+        "status": 200,
+        "body": {
+            "query": q,
+            "count": len(results),
+            "results": results
+        }
+    }
+
+app.get("/api/search", handle_search)
+
+// --- 3. Track Stream Resolution Endpoint ---
+fn handle_resolve(req):
+    let query_map = req["query"]
+    let mut video_id = ""
+    if contains(keys(query_map), "id"):
+        video_id = query_map["id"]
+
+    if len(video_id) == 0:
+        return {
+            "status": 400,
+            "body": {
+                "error": "Missing 'id' query parameter (e.g. /api/resolve?id=videoId)"
+            }
+        }
+
+    print("Resolving stream metadata for video:", video_id)
+
+    let body = {
+        "context": {
+            "client": {
+                "clientName": "WEB_REMIX",
+                "clientVersion": "1.20240401.01.00",
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "videoId": video_id
+    }
+
+    let res = http.exchange({
+        "url": "https://music.youtube.com/youtubei/v1/player",
+        "method": "POST",
+        "body": json.stringify(body),
+        "headers": build_innertube_headers(),
+        "timeout_ms": 15000
+    })
+
+    if !res["ok"]:
+        return {
+            "status": 502,
+            "body": {
+                "error": "Failed to query YouTube player endpoint",
+                "details": res["error"]
+            }
+        }
+
+    let data = json.parse(res["data"]["body"])
+    let mut playability = "UNKNOWN"
+    if contains(keys(data), "playabilityStatus"):
+        playability = data["playabilityStatus"]["status"]
+
+    let mut audio_streams = []
+    if contains(keys(data), "streamingData"):
+        let sd = data["streamingData"]
+        if contains(keys(sd), "adaptiveFormats"):
+            let af = sd["adaptiveFormats"]
+            for f in af {
+                let mime = f["mimeType"]
+                if mime.contains("audio"):
+                    let mut stream_info = {
+                        "itag": f["itag"],
+                        "mimeType": mime,
+                        "bitrate": f["bitrate"]
+                    }
+                    if contains(keys(f), "url"):
+                        stream_info["url"] = f["url"]
+                        stream_info["hasDirectUrl"] = true
+                    else:
+                        stream_info["hasDirectUrl"] = false
+                    append(audio_streams, stream_info)
+            }
+
+    return {
+        "status": 200,
+        "body": {
+            "id": video_id,
+            "playability": playability,
+            "audioStreamsCount": len(audio_streams),
+            "audioStreams": audio_streams
+        }
+    }
+
+app.get("/api/resolve", handle_resolve)
+
+// --- Start Server ---
+let port = 8080
+let host = "0.0.0.0"
+print("NextViper Music Backend Server listening on http://" + host + ":" + str(port))
+app.listen(port, host, false)
