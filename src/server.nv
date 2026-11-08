@@ -589,15 +589,22 @@ app.get("/api/auth/me", handle_me)
 // List Playlists
 fn handle_list_playlists(req):
     let claims = authenticate_request(req)
+    let headers = req["headers"]
     let mut user_id = ""
     if claims != nil and contains(keys(claims), "userId"):
         user_id = claims["userId"]
 
-    // Migrate any guest_user playlists to this logged in user
+    let mut device_id = ""
+    if contains(keys(headers), "x-device-id") and len(headers["x-device-id"]) > 0:
+        device_id = headers["x-device-id"]
+    elif contains(keys(headers), "x-session-id") and len(headers["x-session-id"]) > 0:
+        device_id = headers["x-session-id"]
+
+    // Migrate any guest_user or device_id playlists to this logged in user
     if len(user_id) > 0:
         let mut migrated = false
         for pl in playlists:
-            if pl["userId"] == "guest_user":
+            if pl["userId"] == "guest_user" or (len(device_id) > 0 and pl["userId"] == device_id):
                 pl["userId"] = user_id
                 migrated = true
         if migrated:
@@ -605,8 +612,16 @@ fn handle_list_playlists(req):
 
     let mut user_playlists = []
     for pl in playlists:
-        if len(user_id) == 0 or pl["userId"] == user_id or pl["userId"] == "guest_user" or pl["userId"] == "public":
-            append(user_playlists, pl)
+        let pl_uid = pl["userId"]
+        if len(user_id) > 0:
+            if pl_uid == user_id or pl_uid == "public":
+                append(user_playlists, pl)
+        elif len(device_id) > 0:
+            if pl_uid == device_id or pl_uid == "guest_user" or pl_uid == "public":
+                append(user_playlists, pl)
+        else:
+            if pl_uid == "guest_user" or pl_uid == "public":
+                append(user_playlists, pl)
 
     return {
         "status": 200,
@@ -621,9 +636,14 @@ app.get("/api/playlists", handle_list_playlists)
 // Create New Playlist (Accepts ID from client to prevent disassociation)
 fn handle_create_playlist(req):
     let claims = authenticate_request(req)
+    let headers = req["headers"]
     let mut user_id = "guest_user"
     if claims != nil and contains(keys(claims), "userId"):
         user_id = claims["userId"]
+    elif contains(keys(headers), "x-device-id") and len(headers["x-device-id"]) > 0:
+        user_id = headers["x-device-id"]
+    elif contains(keys(headers), "x-session-id") and len(headers["x-session-id"]) > 0:
+        user_id = headers["x-session-id"]
 
     let body = req.json()
     if !contains(keys(body), "name") or len(body["name"]) == 0:
@@ -818,12 +838,19 @@ fn handle_feed(req):
 
     let keywords = recommendations.generate_category_keywords(category, country, user_prof)
 
-    // Execute queries and gather pools
+    // Execute queries and gather pools with dynamic rotation
     let mut track_pools = []
     let max_keywords = 4
+    let num_kw = len(keywords)
+    let mut offset = 0
+    if num_kw > 0:
+        offset = int(time.now()) % num_kw
+
     let mut kw_count = 0
-    for kw in keywords {
+    for i in range(0, num_kw) {
         if kw_count < max_keywords:
+            let idx = (offset + i) % num_kw
+            let kw = keywords[idx]
             let pool = innertube.search_youtube_cached(kw, country)
             if len(pool) > 0:
                 append(track_pools, pool)
