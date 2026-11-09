@@ -851,7 +851,9 @@ fn handle_feed(req):
             if len(pool) > 0:
                 append(track_pools, pool)
             kw_count = kw_count + 1
-    } (deduplicated, anti-artist saturation max 2 per artist)
+    }
+
+    // Interleave tracks into main pool (deduplicated, anti-artist saturation max 2 per artist)
     let mut blended_tracks = []
     let mut seen_ids = []
     let mut artist_counts = {}
@@ -897,7 +899,9 @@ fn handle_feed(req):
             append(recommended_tracks, blended_tracks[i])
         else:
             append(trending_tracks, blended_tracks[i])
-    } for both sections, fetch a separate trending pool
+    }
+
+    // If not enough tracks for both sections, fetch a separate trending pool
     if len(trending_tracks) < 5:
         let mut trending_kw = "global trending music 2026"
         if country == "IN":
