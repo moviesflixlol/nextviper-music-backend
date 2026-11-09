@@ -199,6 +199,6 @@ fn resolve_innertube_stream(video_id):
             "videoId": video_id,
             "playabilityStatus": playability,
             "streamsCount": len(audio_streams),
-            "streams": audio_streams
+            "audioStreams": audio_streams
         }
     }
