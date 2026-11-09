@@ -851,9 +851,7 @@ fn handle_feed(req):
             if len(pool) > 0:
                 append(track_pools, pool)
             kw_count = kw_count + 1
-    }
-
-    // Interleave tracks into main pool (deduplicated, anti-artist saturation max 2 per artist)
+    } (deduplicated, anti-artist saturation max 2 per artist)
     let mut blended_tracks = []
     let mut seen_ids = []
     let mut artist_counts = {}
@@ -899,9 +897,7 @@ fn handle_feed(req):
             append(recommended_tracks, blended_tracks[i])
         else:
             append(trending_tracks, blended_tracks[i])
-    }
-
-    // If not enough tracks for both sections, fetch a separate trending pool
+    } for both sections, fetch a separate trending pool
     if len(trending_tracks) < 5:
         let mut trending_kw = "global trending music 2026"
         if country == "IN":
@@ -910,12 +906,13 @@ fn handle_feed(req):
             trending_kw = "us chart toppers 2026"
         let trend_pool = innertube.search_youtube_cached_for_user(trending_kw, country, user_id + "_t")
         let mut t_seen = []
-        for t in blended_tracks:
-            append(t_seen, t["id"])
-        for tr in trend_pool:
+        for bt in blended_tracks {
+            append(t_seen, bt["id"])
+        }
+        for tr in trend_pool {
             if !contains(t_seen, tr["id"]) and len(trending_tracks) < 20:
                 append(trending_tracks, tr)
-    }
+        }
 
     // Extract unique artists
     let mut feed_artists = []
