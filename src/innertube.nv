@@ -21,6 +21,31 @@ fn build_ios_headers():
 
 let mut SEARCH_CACHE = {}
 
+// Cache with user scoping: key = query + country + user_id
+// TTL = 300s (5 min) so returning users get fresh results each visit
+// Anonymous users share cache only when query+country match exactly
+
+fn search_youtube_cached_for_user(q, country, user_id):
+    let now = time.now()
+    // Scope cache to user so two different users never share the exact same pool
+    let mut cache_key = q + "_" + country + "_" + user_id
+    if len(user_id) == 0:
+        cache_key = q + "_" + country + "_anon"
+
+    if contains(keys(SEARCH_CACHE), cache_key):
+        let entry = SEARCH_CACHE[cache_key]
+        // 5 minute TTL — short enough that each new visit gets fresh results
+        if (now - entry["timestamp"]) < 300.0:
+            return entry["results"]
+
+    let res = execute_innertube_search(q, country)
+    if len(res) > 0:
+        SEARCH_CACHE[cache_key] = {
+            "timestamp": now,
+            "results": res
+        }
+    return res
+
 fn execute_innertube_search(q, country):
     let mut gl_code = "IN"
     if len(country) > 0:
@@ -135,6 +160,71 @@ fn search_youtube_cached(q, country):
             "results": res
         }
     return res
+    let body = {
+        "context": {
+            "client": {
+                "clientName": "IOS",
+                "clientVersion": "21.03.1",
+                "deviceMake": "Apple",
+                "deviceModel": "iPhone16,2",
+                "osName": "iOS",
+                "osVersion": "18.2.22C152",
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "videoId": video_id
+    }
+
+    let res = http.exchange({
+        "url": "https://www.youtube.com/youtubei/v1/player",
+        "method": "POST",
+        "body": json.stringify(body),
+        "headers": build_ios_headers(),
+        "timeout_ms": 15000
+    })
+
+    if !res["ok"]:
+        return {
+            "status": 502,
+            "body": { "error": "Failed to query YouTube player endpoint" }
+        }
+
+    let data = json.parse(res["data"]["body"])
+    let mut playability = "UNKNOWN"
+    if contains(keys(data), "playabilityStatus"):
+        playability = data["playabilityStatus"]["status"]
+
+    let mut audio_streams = []
+    if contains(keys(data), "streamingData"):
+        let sd = data["streamingData"]
+        if contains(keys(sd), "adaptiveFormats"):
+            let af = sd["adaptiveFormats"]
+            for f in af {
+                let mime = f["mimeType"]
+                if mime.contains("audio"):
+                    let mut stream_info = {
+                        "itag": f["itag"],
+                        "mimeType": mime,
+                        "bitrate": f["bitrate"]
+                    }
+                    if contains(keys(f), "url"):
+                        stream_info["url"] = f["url"]
+                        stream_info["hasDirectUrl"] = true
+                    else:
+                        stream_info["hasDirectUrl"] = false
+                    append(audio_streams, stream_info)
+            }
+
+    return {
+        "status": 200,
+        "body": {
+            "videoId": video_id,
+            "playabilityStatus": playability,
+            "streamsCount": len(audio_streams),
+            "audioStreams": audio_streams
+        }
+    }
 
 fn resolve_innertube_stream(video_id):
     let body = {

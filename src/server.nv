@@ -836,28 +836,24 @@ fn handle_feed(req):
     elif contains(keys(headers), "x-country-code") and len(headers["x-country-code"]) > 0:
         country = headers["x-country-code"]
 
-    let keywords = recommendations.generate_category_keywords(category, country, user_prof)
+    let keywords = recommendations.generate_keywords_for_user(category, country, user_prof, int(time.now() * 1000) % 9999)
 
-    // Execute queries and gather pools with dynamic rotation
+    // Execute queries with user-scoped cache — each user gets their own fresh pool
     let mut track_pools = []
-    let max_keywords = 4
+    let max_keywords = 6
     let num_kw = len(keywords)
-    let mut offset = 0
-    if num_kw > 0:
-        offset = int(time.now()) % num_kw
 
     let mut kw_count = 0
     for i in range(0, num_kw) {
         if kw_count < max_keywords:
-            let idx = (offset + i) % num_kw
-            let kw = keywords[idx]
-            let pool = innertube.search_youtube_cached(kw, country)
+            let kw = keywords[i]
+            let pool = innertube.search_youtube_cached_for_user(kw, country, user_id)
             if len(pool) > 0:
                 append(track_pools, pool)
             kw_count = kw_count + 1
     }
 
-    // Interleave tracks with anti-artist saturation (max 2 per artist)
+    // Interleave tracks into main pool (deduplicated, anti-artist saturation max 2 per artist)
     let mut blended_tracks = []
     let mut seen_ids = []
     let mut artist_counts = {}
@@ -866,7 +862,7 @@ fn handle_feed(req):
     if user_prof != nil:
         disliked = user_prof["dislikedTracks"]
 
-    let max_depth = 12
+    let max_depth = 15
     for depth in range(0, max_depth) {
         for pool in track_pools {
             if depth < len(pool):
@@ -891,17 +887,35 @@ fn handle_feed(req):
 
     let featured = blended_tracks[0]
 
-    // Separate recommended and trending so they don't mirror each other!
+    // Split into recommended (first half) and trending (second half)
+    // so both sections show DIFFERENT songs, not alternating from the same pool
+    let total = len(blended_tracks)
+    let half = total / 2
     let mut recommended_tracks = []
     let mut trending_tracks = []
-    for i in range(0, len(blended_tracks)) {
-        if i % 2 == 0:
+
+    for i in range(0, total) {
+        if i < half:
             append(recommended_tracks, blended_tracks[i])
         else:
             append(trending_tracks, blended_tracks[i])
     }
-    if len(trending_tracks) == 0:
-        trending_tracks = blended_tracks
+
+    // If not enough tracks for both sections, fetch a separate trending pool
+    if len(trending_tracks) < 5:
+        let mut trending_kw = "global trending music 2026"
+        if country == "IN":
+            trending_kw = "india viral songs this week"
+        elif country == "US":
+            trending_kw = "us chart toppers 2026"
+        let trend_pool = innertube.search_youtube_cached_for_user(trending_kw, country, user_id + "_t")
+        let mut t_seen = []
+        for t in blended_tracks:
+            append(t_seen, t["id"])
+        for tr in trend_pool:
+            if !contains(t_seen, tr["id"]) and len(trending_tracks) < 20:
+                append(trending_tracks, tr)
+    }
 
     // Extract unique artists
     let mut feed_artists = []
