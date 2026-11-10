@@ -9,6 +9,7 @@ import std.fs
 import std.crypto
 import std.math
 import std.env
+import std.process
 
 import database
 import email_service
@@ -20,7 +21,10 @@ print("  Initializing NextViper Modular Music Backend    ")
 print("  Runtime: NextViper 1.0.0 (Apex)                 ")
 print("==================================================")
 
-let JWT_SECRET = "nextviper_production_jwt_master_secret_2026_apex_cloud"
+let JWT_SECRET = env.get("VIPER_JWT_SECRET", "")
+if len(JWT_SECRET) < 64:
+    print("VIPER_JWT_SECRET must be configured with at least 64 characters")
+    process.exit(1)
 
 // Initialize In-Memory / Persistent Storage
 let mut users = database.load_db("users.json", [])
@@ -46,7 +50,7 @@ fn authenticate_request(req):
         return nil
 
     let auth_header = headers["authorization"]
-    if len(auth_header) < 8:
+    if len(auth_header) < 8 or auth_header[0:7] != "Bearer ":
         return nil
 
     let mut token = ""
@@ -54,7 +58,44 @@ fn authenticate_request(req):
         token = auth_header[7:]
 
     let claims = crypto.jwt_decode(token, JWT_SECRET)
+    if typeof(claims) != "Object":
+        return nil
+    if !contains(keys(claims), "userId") or !contains(keys(claims), "exp"):
+        return nil
+    if typeof(claims["userId"]) != "String" or len(claims["userId"]) == 0:
+        return nil
+    if typeof(claims["exp"]) != "Int" and typeof(claims["exp"]) != "Float":
+        return nil
+    if claims["exp"] <= time.now():
+        return nil
+    let mut exists = false
+    for user in users:
+        if user["id"] == claims["userId"]:
+            exists = true
+    if !exists:
+        return nil
     return claims
+
+// Device IDs identify existing guest libraries; they never transfer ownership.
+fn playlist_owner(req):
+    let claims = authenticate_request(req)
+    if claims != nil:
+        return claims["userId"]
+    let headers = req["headers"]
+    if contains(keys(headers), "authorization"):
+        return ""
+    let mut device_id = ""
+    if contains(keys(headers), "x-device-id"):
+        device_id = headers["x-device-id"]
+    elif contains(keys(headers), "x-session-id"):
+        device_id = headers["x-session-id"]
+    if len(device_id) > 8 and device_id[0:4] == "dev_" and device_id != "dev_guest":
+        return device_id
+    return ""
+
+fn can_edit_playlist(req, playlist):
+    let owner = playlist_owner(req)
+    return len(owner) > 0 and playlist["userId"] == owner
 
 // --- 1. Health Endpoint ---
 
@@ -160,7 +201,7 @@ fn handle_register(req):
             "userId": user_id,
             "email": email,
             "name": name,
-            "exp": time.now() + 2592000
+            "exp": int(time.now()) + 2592000
         }
         let token = crypto.jwt_encode(token_payload, JWT_SECRET)
 
@@ -267,7 +308,7 @@ fn handle_verify_email(req):
         "userId": user_id,
         "email": email,
         "name": pending["name"],
-        "exp": time.now() + 2592000
+        "exp": int(time.now()) + 2592000
     }
     let token = crypto.jwt_encode(token_payload, JWT_SECRET)
 
@@ -318,21 +359,11 @@ fn handle_login(req):
             "body": { "error": "Invalid email or password" }
         }
 
-    // Migrate any guest_user playlists to this authenticated user!
-    let u_id = found_user["id"]
-    let mut updated_pl = false
-    for pl in playlists:
-        if pl["userId"] == "guest_user":
-            pl["userId"] = u_id
-            updated_pl = true
-    if updated_pl:
-        database.save_db("playlists.json", playlists)
-
     let token_payload = {
         "userId": found_user["id"],
         "email": found_user["email"],
         "name": found_user["name"],
-        "exp": time.now() + 2592000
+        "exp": int(time.now()) + 2592000
     }
     let token = crypto.jwt_encode(token_payload, JWT_SECRET)
 
@@ -532,7 +563,7 @@ fn handle_resend_code(req):
                 "userId": user_id,
                 "email": email,
                 "name": pending["name"],
-                "exp": time.now() + 2592000
+                "exp": int(time.now()) + 2592000
             }
             let token = crypto.jwt_encode(token_payload, JWT_SECRET)
             return {
@@ -570,6 +601,10 @@ fn handle_me(req):
             "body": { "error": "User not found" }
         }
 
+    let mut email_verified = false
+    if contains(keys(current_user), "emailVerified"):
+        email_verified = current_user["emailVerified"] == true
+
     return {
         "status": 200,
         "body": {
@@ -577,51 +612,28 @@ fn handle_me(req):
                 "id": current_user["id"],
                 "email": current_user["email"],
                 "name": current_user["name"],
-                "createdAt": current_user["createdAt"]
+                "createdAt": current_user["createdAt"],
+                "emailVerified": email_verified
             }
         }
     }
 
 app.get("/api/auth/me", handle_me)
 
-// --- 3. Cloud Playlists Endpoints (With ID Preservation & Guest Migration) ---
+// --- 3. Cloud Playlists Endpoints (Preserve Existing Ownership) ---
 
 // List Playlists
 fn handle_list_playlists(req):
     let claims = authenticate_request(req)
     let headers = req["headers"]
-    let mut user_id = ""
-    if claims != nil and contains(keys(claims), "userId"):
-        user_id = claims["userId"]
-
-    let mut device_id = ""
-    if contains(keys(headers), "x-device-id") and len(headers["x-device-id"]) > 0:
-        device_id = headers["x-device-id"]
-    elif contains(keys(headers), "x-session-id") and len(headers["x-session-id"]) > 0:
-        device_id = headers["x-session-id"]
-
-    // Migrate any guest_user or device_id playlists to this logged in user
-    if len(user_id) > 0:
-        let mut migrated = false
-        for pl in playlists:
-            if pl["userId"] == "guest_user" or (len(device_id) > 0 and pl["userId"] == device_id):
-                pl["userId"] = user_id
-                migrated = true
-        if migrated:
-            database.save_db("playlists.json", playlists)
-
+    if contains(keys(headers), "authorization") and claims == nil:
+        return { "status": 401, "body": { "error": "Sign in again." } }
+    let user_id = playlist_owner(req)
     let mut user_playlists = []
     for pl in playlists:
         let pl_uid = pl["userId"]
-        if len(user_id) > 0:
-            if pl_uid == user_id or pl_uid == "public":
-                append(user_playlists, pl)
-        elif len(device_id) > 0:
-            if pl_uid == device_id or pl_uid == "guest_user" or pl_uid == "public":
-                append(user_playlists, pl)
-        else:
-            if pl_uid == "guest_user" or pl_uid == "public":
-                append(user_playlists, pl)
+        if pl_uid == "public" or (len(user_id) > 0 and pl_uid == user_id) or (claims == nil and pl_uid == "guest_user"):
+            append(user_playlists, pl)
 
     return {
         "status": 200,
@@ -635,15 +647,9 @@ app.get("/api/playlists", handle_list_playlists)
 
 // Create New Playlist (Accepts ID from client to prevent disassociation)
 fn handle_create_playlist(req):
-    let claims = authenticate_request(req)
-    let headers = req["headers"]
-    let mut user_id = "guest_user"
-    if claims != nil and contains(keys(claims), "userId"):
-        user_id = claims["userId"]
-    elif contains(keys(headers), "x-device-id") and len(headers["x-device-id"]) > 0:
-        user_id = headers["x-device-id"]
-    elif contains(keys(headers), "x-session-id") and len(headers["x-session-id"]) > 0:
-        user_id = headers["x-session-id"]
+    let user_id = playlist_owner(req)
+    if len(user_id) == 0:
+        return { "status": 401, "body": { "error": "A user session or private device library is required." } }
 
     let body = req.json()
     if !contains(keys(body), "name") or len(body["name"]) == 0:
@@ -671,6 +677,8 @@ fn handle_create_playlist(req):
             existing_pl = pl
 
     if existing_pl != nil:
+        if !can_edit_playlist(req, existing_pl):
+            return { "status": 403, "body": { "error": "Playlist belongs to another owner." } }
         return {
             "status": 200,
             "body": existing_pl
@@ -723,6 +731,9 @@ fn handle_add_track_to_playlist(req):
             "body": { "error": "Playlist not found", "id": pl_id }
         }
 
+    if !can_edit_playlist(req, found_pl):
+        return { "status": 403, "body": { "error": "Playlist belongs to another owner." } }
+
     // Avoid duplicates
     let mut already_in = false
     for t in found_pl["tracks"]:
@@ -751,6 +762,8 @@ fn handle_delete_playlist(req):
 
     for pl in playlists:
         if pl["id"] == pl_id:
+            if !can_edit_playlist(req, pl):
+                return { "status": 403, "body": { "error": "Playlist belongs to another owner." } }
             deleted = true
         else:
             append(new_playlists, pl)
@@ -1103,7 +1116,7 @@ app.get("/api/resolve", handle_resolve)
 // --- 6. Start Server ---
 
 let mut port = 8080
-let host = "0.0.0.0"
+let host = env.get("HOST", "0.0.0.0")
 
 let env_port = env.get("PORT")
 if env_port != nil and len(str(env_port)) > 0:
