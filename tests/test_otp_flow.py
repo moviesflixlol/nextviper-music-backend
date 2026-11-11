@@ -12,6 +12,8 @@ class OTPFlow(AuthSecurity):
         start=source.index('fn send_branded_resend_email(')
         end=source.index('fn build_movieflix_email_template(',start)
         capture='''fn send_branded_resend_email(to_email, subject, html_content, brand):
+    if !rate_limits.reserve_email(to_email):
+        return false
     let message = {"to": to_email, "subject": subject, "html": html_content, "brand": brand}
     fs.write_text("./test-mailbox.json", json.stringify(message))
     return true

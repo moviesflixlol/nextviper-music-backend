@@ -16,6 +16,7 @@ import database
 import email_service
 import innertube
 import recommendations
+import rate_limits
 
 print("==================================================")
 print("  Initializing NextViper Modular Music Backend    ")
@@ -123,6 +124,9 @@ app.get("/api/health", handle_health)
 
 // Register New User
 fn handle_register(req):
+    let rate_error = rate_limits.check(req, "auth")
+    if rate_error != nil:
+        return rate_error
     let body = req.json()
     if !contains(keys(body), "email") or !contains(keys(body), "password"):
         return {
@@ -131,6 +135,9 @@ fn handle_register(req):
         }
 
     let email = body["email"]
+    let email_error = rate_limits.email_throttle(email)
+    if email_error != nil:
+        return email_error
     let password = body["password"]
     let mut name = "Viper User"
     if contains(keys(body), "name") and len(body["name"]) > 0:
@@ -160,61 +167,9 @@ fn handle_register(req):
 
     let email_sent = email_service.send_app_auth_email(body, email, "signup", otp_code)
 
-    // Fallback: If Resend SMTP hit daily quota or failed, allow direct signup without OTP!
     if !email_sent:
-        print("[Resend Quota/Failure] Email delivery failed or daily quota reached. Allowing direct user signup without OTP.")
+        return {"status": 503, "body": {"error": "Email delivery is unavailable. Please try again later."}}
 
-        let user_id = "usr_" + str(time.now()) + "_" + crypto.random_bytes(4)
-        let new_user = {
-            "id": user_id,
-            "email": email,
-            "name": name,
-            "passwordHash": password_hash,
-            "createdAt": time.now(),
-            "emailVerified": false
-        }
-        append(users, new_user)
-        database.save_db("users.json", users)
-
-        let mut user_genres = {}
-        for g in interests:
-            user_genres[g] = 1.0
-
-        profiles[user_id] = {
-            "userId": user_id,
-            "preferredArtists": {},
-            "preferredGenres": user_genres,
-            "likedTracks": [],
-            "dislikedTracks": [],
-            "history": [],
-            "skippedTracks": []
-        }
-        database.save_db("profiles.json", profiles)
-
-        let token_payload = {
-            "userId": user_id,
-            "email": email,
-            "name": name,
-            "exp": int(time.now()) + 2592000
-        }
-        let token = crypto.jwt_encode(token_payload, JWT_SECRET)
-
-        return {
-            "status": 201,
-            "body": {
-                "success": true,
-                "verificationRequired": false,
-                "token": token,
-                "user": {
-                    "id": user_id,
-                    "email": email,
-                    "name": name
-                },
-                "message": "Account created successfully! Welcome to MUSIC."
-            }
-        }
-
-    // Normal flow: OTP sent to user email
     PENDING_REGISTRATIONS[email] = {
         "email": email,
         "name": name,
@@ -240,6 +195,9 @@ app.post("/api/auth/register", handle_register)
 
 // Verify Email with 6-digit OTP
 fn handle_verify_email(req):
+    let rate_error = rate_limits.check(req, "auth")
+    if rate_error != nil:
+        return rate_error
     let body = req.json()
     if !contains(keys(body), "email") or !contains(keys(body), "code"):
         return {
@@ -325,6 +283,9 @@ app.post("/api/auth/verify-email", handle_verify_email)
 
 // Login User
 fn handle_login(req):
+    let rate_error = rate_limits.check(req, "auth")
+    if rate_error != nil:
+        return rate_error
     let body = req.json()
     if !contains(keys(body), "email") or !contains(keys(body), "password"):
         return {
@@ -380,6 +341,9 @@ app.post("/api/auth/login", handle_login)
 
 // Request Password Reset OTP
 fn handle_forgot_password(req):
+    let rate_error = rate_limits.check(req, "auth")
+    if rate_error != nil:
+        return rate_error
     let body = req.json()
     if !contains(keys(body), "email"):
         return {
@@ -388,6 +352,9 @@ fn handle_forgot_password(req):
         }
 
     let email = body["email"]
+    let email_error = rate_limits.email_throttle(email)
+    if email_error != nil:
+        return email_error
     let mut found = false
     for u in users:
         if u["email"] == email:
@@ -431,6 +398,9 @@ app.post("/api/auth/forgot-password", handle_forgot_password)
 
 // Complete Password Reset
 fn handle_reset_password(req):
+    let rate_error = rate_limits.check(req, "auth")
+    if rate_error != nil:
+        return rate_error
     let body = req.json()
     if !contains(keys(body), "email") or !contains(keys(body), "code") or !contains(keys(body), "newPassword"):
         return {
@@ -489,6 +459,9 @@ app.post("/api/auth/reset-password", handle_reset_password)
 
 // Resend Verification / Reset Code
 fn handle_resend_code(req):
+    let rate_error = rate_limits.check(req, "auth")
+    if rate_error != nil:
+        return rate_error
     let body = req.json()
     if !contains(keys(body), "email"):
         return {
@@ -497,6 +470,9 @@ fn handle_resend_code(req):
         }
 
     let email = body["email"]
+    let email_error = rate_limits.email_throttle(email)
+    if email_error != nil:
+        return email_error
     let mut req_type = "signup"
     if contains(keys(body), "type"):
         req_type = body["type"]
@@ -530,31 +506,7 @@ fn handle_resend_code(req):
             }
         let ok = email_service.send_app_auth_email(body, email, "signup", otp_code)
         if !ok:
-            // Allow direct verification if email service fails
-            let pending = PENDING_REGISTRATIONS[email]
-            let user_id = "usr_" + str(time.now()) + "_" + crypto.random_bytes(4)
-            let new_user = {
-                "id": user_id,
-                "email": pending["email"],
-                "name": pending["name"],
-                "passwordHash": pending["passwordHash"],
-                "createdAt": time.now(),
-                "emailVerified": false
-            }
-            append(users, new_user)
-            database.save_db("users.json", users)
-            PENDING_REGISTRATIONS[email] = nil
-            let token_payload = {
-                "userId": user_id,
-                "email": email,
-                "name": pending["name"],
-                "exp": int(time.now()) + 2592000
-            }
-            let token = crypto.jwt_encode(token_payload, JWT_SECRET)
-            return {
-                "status": 200,
-                "body": { "success": true, "verificationRequired": false, "token": token, "message": "Account activated directly." }
-            }
+            return {"status": 503, "body": {"error": "Email delivery is unavailable. Please try again later."}}
 
         PENDING_REGISTRATIONS[email]["otp"] = otp_code
         PENDING_REGISTRATIONS[email]["expiresAt"] = time.now() + 600.0
@@ -567,6 +519,9 @@ app.post("/api/auth/resend-code", handle_resend_code)
 
 // Current User Profile
 fn handle_me(req):
+    let rate_error = rate_limits.check(req, "api")
+    if rate_error != nil:
+        return rate_error
     let claims = authenticate_request(req)
     if claims == nil:
         return {
@@ -609,6 +564,9 @@ app.get("/api/auth/me", handle_me)
 
 // List Playlists
 fn handle_list_playlists(req):
+    let rate_error = rate_limits.check(req, "api")
+    if rate_error != nil:
+        return rate_error
     let claims = authenticate_request(req)
     let headers = req["headers"]
     if contains(keys(headers), "authorization") and claims == nil:
@@ -632,6 +590,9 @@ app.get("/api/playlists", handle_list_playlists)
 
 // Create New Playlist (Accepts ID from client to prevent disassociation)
 fn handle_create_playlist(req):
+    let rate_error = rate_limits.check(req, "api")
+    if rate_error != nil:
+        return rate_error
     let user_id = playlist_owner(req)
     if len(user_id) == 0:
         return { "status": 401, "body": { "error": "A user session or private device library is required." } }
@@ -695,6 +656,9 @@ app.post("/api/playlists", handle_create_playlist)
 
 // Add Track to Playlist
 fn handle_add_track_to_playlist(req):
+    let rate_error = rate_limits.check(req, "api")
+    if rate_error != nil:
+        return rate_error
     let pl_id = req["params"]["id"]
     let body = req.json()
 
@@ -741,6 +705,9 @@ app.post("/api/playlists/:id/tracks", handle_add_track_to_playlist)
 
 // Delete Playlist
 fn handle_delete_playlist(req):
+    let rate_error = rate_limits.check(req, "api")
+    if rate_error != nil:
+        return rate_error
     let pl_id = req["params"]["id"]
     let mut new_playlists = []
     let mut deleted = false
@@ -775,6 +742,9 @@ app.delete("/api/playlists/:id", handle_delete_playlist)
 
 // Telemetry Event
 fn handle_recommendation_event(req):
+    let rate_error = rate_limits.check(req, "api")
+    if rate_error != nil:
+        return rate_error
     let claims = authenticate_request(req)
     let headers = req["headers"]
     let mut user_id = "anonymous"
@@ -807,6 +777,9 @@ app.post("/api/recommendations/event", handle_recommendation_event)
 
 // Recommendations Feed (Category-Aware: All / Music / Podcasts)
 fn handle_feed(req):
+    let rate_error = rate_limits.check(req, "api")
+    if rate_error != nil:
+        return rate_error
     let claims = authenticate_request(req)
     let headers = req["headers"]
     let mut user_id = ""
@@ -1051,6 +1024,9 @@ app.get("/api/recommendations/feed", handle_feed)
 
 // Search Endpoint
 fn handle_search(req):
+    let rate_error = rate_limits.check(req, "search")
+    if rate_error != nil:
+        return rate_error
     let query_map = req["query"]
     let mut q = ""
     if contains(keys(query_map), "q"):
@@ -1082,6 +1058,9 @@ app.get("/api/search", handle_search)
 
 // Track Stream Resolution Endpoint
 fn handle_resolve(req):
+    let rate_error = rate_limits.check(req, "search")
+    if rate_error != nil:
+        return rate_error
     let query_map = req["query"]
     let mut video_id = ""
     if contains(keys(query_map), "id"):

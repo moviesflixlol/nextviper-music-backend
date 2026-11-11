@@ -25,7 +25,7 @@ class AuthSecurity(unittest.TestCase):
         if hasattr(cls, 'prepare_sources'):
             cls.prepare_sources()
         (cls.work / 'data').mkdir()
-        cls.env = dict(os.environ, VIPER_JWT_SECRET=secrets.token_hex(32), HOST='127.0.0.1')
+        cls.env = dict(os.environ, VIPER_JWT_SECRET=secrets.token_hex(32), HOST='127.0.0.1', VIPER_AUTH_REQUESTS_PER_MINUTE='1000', VIPER_API_REQUESTS_PER_MINUTE='1000')
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             cls.port = sock.getsockname()[1]

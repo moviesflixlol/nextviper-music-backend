@@ -1,0 +1,97 @@
+import std.time
+import std.fs
+import std.json
+import std.env
+import std.crypto
+import std.string
+
+let EMAIL_WINDOW = 3600
+let EMAIL_LIMIT = 3
+let STATE_PATH = env.get("VIPER_EMAIL_LIMIT_PATH", "./data/email_limits.json")
+let API_LIMIT = int(env.get("VIPER_API_REQUESTS_PER_MINUTE", "240"))
+let AUTH_LIMIT = int(env.get("VIPER_AUTH_REQUESTS_PER_MINUTE", "20"))
+let SEARCH_LIMIT = int(env.get("VIPER_SEARCH_REQUESTS_PER_MINUTE", "60"))
+let mut email_events = {}
+let mut request_events = {}
+if fs.exists(STATE_PATH):
+    email_events = json.parse(fs.read_text(STATE_PATH))
+
+fn recent(events, now, window):
+    let mut result = []
+    for timestamp in events:
+        if timestamp > now - window:
+            append(result, timestamp)
+    return result
+
+fn email_key(email):
+    let normalized = string.to_lower(string.trim(email))
+    return crypto.hmac_sha256(env.get("VIPER_JWT_SECRET", ""), normalized)
+
+fn email_history_at(email, now):
+    let key = email_key(email)
+    let mut entries = []
+    if contains(keys(email_events), key):
+        entries = recent(email_events[key], now, EMAIL_WINDOW)
+    return entries
+
+fn email_allowed_at(email, now):
+    return len(email_history_at(email, now)) < EMAIL_LIMIT
+
+fn email_throttle(email):
+    let now = time.now()
+    let entries = email_history_at(email, now)
+    if len(entries) < EMAIL_LIMIT:
+        return nil
+    let retry = int(entries[0] + EMAIL_WINDOW - now) + 1
+    return {"status": 429, "headers": {"Retry-After": str(retry), "Cache-Control": "no-store"}, "body": {"error": "You can request at most 3 emails per hour. Try again later.", "retryAfter": retry}}
+
+fn reserve_email_at(email, now):
+    let entries = email_history_at(email, now)
+    if len(entries) >= EMAIL_LIMIT:
+        return false
+    append(entries, now)
+    email_events[email_key(email)] = entries
+    fs.write_text(STATE_PATH + ".tmp", json.stringify(email_events))
+    fs.rename(STATE_PATH + ".tmp", STATE_PATH)
+    return true
+
+fn reserve_email(email):
+    return reserve_email_at(email, time.now())
+
+fn client_key(req, group):
+    let mut peer = "unknown"
+    if contains(keys(req), "remote_addr"):
+        peer = req["remote_addr"]
+    let headers = req["headers"]
+    let trusted = peer == "127.0.0.1" or peer == "172.31.45.6"
+    let mut client = peer
+    if trusted and contains(keys(headers), "x-forwarded-for"):
+        let addresses = string.split(headers["x-forwarded-for"], ",")
+        client = string.trim(addresses[0])
+    if trusted and client == "127.0.0.1" and group == "auth":
+        let body = req.json()
+        if typeof(body) == "Object" and contains(keys(body), "client_ip"):
+            client = str(body["client_ip"])
+    if trusted and client == "127.0.0.1" and contains(keys(headers), "authorization"):
+        client = crypto.hmac_sha256(env.get("VIPER_JWT_SECRET", ""), headers["authorization"])
+    return group + ":" + client
+
+fn check_at(req, group, now):
+    let key = client_key(req, group)
+    let mut limit = API_LIMIT
+    if group == "auth":
+        limit = AUTH_LIMIT
+    if group == "search":
+        limit = SEARCH_LIMIT
+    let mut entries = []
+    if contains(keys(request_events), key):
+        entries = recent(request_events[key], now, 60)
+    if len(entries) >= limit:
+        let retry = int(entries[0] + 60 - now) + 1
+        return {"status": 429, "headers": {"Retry-After": str(retry), "Cache-Control": "no-store"}, "body": {"error": "Too many requests. Try again shortly.", "retryAfter": retry}}
+    append(entries, now)
+    request_events[key] = entries
+    return nil
+
+fn check(req, group):
+    return check_at(req, group, time.now())
