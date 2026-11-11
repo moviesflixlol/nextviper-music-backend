@@ -50,6 +50,7 @@ class MusicRecommendations(auth_tests.AuthSecurity):
   more=self.request('/api/recommendations/feed?exclude='+','.join(ids))[1]
   self.assertFalse(set(ids)&{t['id'] for t in more['recommendedForYou']})
   self.assertTrue(feed['releaseAlbums'])
+  self.assertTrue(feed['recommendedForYou'])
  def test_12_artist_search_and_browse_validation(self):
   status, data=self.request('/api/search?q=Billie')
   self.assertEqual(status,200);self.assertTrue(data['artists']);self.assertTrue(data['results'])

@@ -107,6 +107,8 @@ fn parse_item(r, inherited_artist):
     if typeof(browse_id) == "String" and len(title) > 0:
         if page_type == "MUSIC_PAGE_TYPE_ARTIST":
             return {"kind": "artist", "id": browse_id, "name": title, "imageUrl": thumbnail, "genre": "", "subtitle": text_of(metadata)}
+        if page_type == "MUSIC_PAGE_TYPE_PLAYLIST":
+            return {"kind": "playlist", "id": browse_id, "title": title, "thumbnail": thumbnail}
         if page_type == "MUSIC_PAGE_TYPE_ALBUM":
             return {"kind": "album", "id": browse_id, "title": title, "artist": artist, "thumbnail": thumbnail, "subtitle": text_of(metadata)}
     return nil
@@ -144,7 +146,7 @@ fn collect(node, out, inherited_artist):
 fn parse_response(data):
     let mut items = []
     collect(data, items, "")
-    let mut result = {"songs": [], "artists": [], "albums": []}
+    let mut result = {"songs": [], "artists": [], "albums": [], "playlists": []}
     let mut seen = []
     for item in items:
         if !contains(seen, item["id"]):
@@ -155,6 +157,8 @@ fn parse_response(data):
                 append(result["artists"], item)
             elif item["kind"] == "album":
                 append(result["albums"], item)
+            elif item["kind"] == "playlist":
+                append(result["playlists"], item)
     return result
 
 fn build_innertube_headers():
@@ -175,7 +179,7 @@ fn request_items(endpoint, extra, country):
         body[key] = extra[key]
     let res = http.exchange({"url": "https://music.youtube.com/youtubei/v1/" + endpoint, "method": "POST", "body": json.stringify(body), "headers": build_innertube_headers(), "timeout_ms": 6000})
     if !res["ok"]:
-        return {"songs": [], "artists": [], "albums": []}
+        return {"songs": [], "artists": [], "albums": [], "playlists": []}
     let parsed = parse_response(json.parse(res["data"]["body"]))
     if len(keys(SEARCH_CACHE)) >= 128:
         SEARCH_CACHE = {}
@@ -267,3 +271,16 @@ fn resolve_innertube_stream(video_id):
             "audioStreams": audio_streams
         }
     }
+
+fn charts(country):
+    let data = browse("FEmusic_charts", country)
+    if len(data["songs"]) == 0:
+        for playlist in data["playlists"]:
+            if playlist["title"].starts_with("Daily Top Music Videos"):
+                let mut playlist_id = playlist["id"]
+                if playlist_id.starts_with("VL"):
+                    playlist_id = playlist_id[2:]
+                let tracks = request_items("next", {"playlistId": playlist_id}, country)
+                data["songs"] = tracks["songs"]
+                break
+    return data

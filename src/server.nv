@@ -819,7 +819,7 @@ fn handle_feed(req):
         country = headers["x-country-code"]
 
     let releases = innertube.browse("FEmusic_new_releases", country)
-    let charts = innertube.browse("FEmusic_charts", country)
+    let charts = innertube.charts(country)
     let most = recommendations.most_listened(user_prof)
     let mut pools = []
     let mut history = []

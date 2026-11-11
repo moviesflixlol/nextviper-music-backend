@@ -2,6 +2,27 @@
   "contents": [
     {
       "musicTwoRowItemRenderer": {
+        "title": {
+          "runs": [
+            {
+              "text": "Daily Top Music Videos - United States"
+            }
+          ]
+        },
+        "navigationEndpoint": {
+          "browseEndpoint": {
+            "browseId": "VLPLcaptured_chart",
+            "browseEndpointContextSupportedConfigs": {
+              "browseEndpointContextMusicConfig": {
+                "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "musicTwoRowItemRenderer": {
         "thumbnailRenderer": {
           "musicThumbnailRenderer": {
             "thumbnail": {
