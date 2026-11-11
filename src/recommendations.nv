@@ -1,173 +1,6 @@
-// NextViper Music Backend - Recommendation & Telemetry Engine
-// Real personalization: large keyword pool, user-scoped queries, genre/artist seeding
-
 import std.time
 import std.crypto
-import std.math
-
-let CATALOG_TRACKS = [
-    {
-        "id": "6eW99oNNRvI",
-        "title": "Starboy (Official Music Video)",
-        "artist": "The Weeknd",
-        "duration": "3:50",
-        "thumbnail": "https://i.ytimg.com/vi/6eW99oNNRvI/hqdefault.jpg",
-        "genre": "Pop"
-    },
-    {
-        "id": "p8_ugAjWI5I",
-        "title": "Blinding Lights",
-        "artist": "The Weeknd",
-        "duration": "3:20",
-        "thumbnail": "https://i.ytimg.com/vi/p8_ugAjWI5I/hqdefault.jpg",
-        "genre": "Pop"
-    },
-    {
-        "id": "Kcj5-jWxgKs",
-        "title": "Save Your Tears",
-        "artist": "The Weeknd",
-        "duration": "3:35",
-        "thumbnail": "https://i.ytimg.com/vi/Kcj5-jWxgKs/hqdefault.jpg",
-        "genre": "Pop"
-    },
-    {
-        "id": "VKC_hzJ3jzg",
-        "title": "Stitches",
-        "artist": "Shawn Mendes",
-        "duration": "3:26",
-        "thumbnail": "https://i.ytimg.com/vi/VKC_hzJ3jzg/hqdefault.jpg",
-        "genre": "Pop"
-    },
-    {
-        "id": "3_g2un5M350",
-        "title": "Treat You Better",
-        "artist": "Shawn Mendes",
-        "duration": "3:07",
-        "thumbnail": "https://i.ytimg.com/vi/3_g2un5M350/hqdefault.jpg",
-        "genre": "Pop"
-    }
-]
-
-// Large keyword pools per genre — picked randomly per request so every load is fresh
-let GENRE_KEYWORD_POOL = {
-    "Pop": [
-        "pop hits 2026", "pop songs this week", "viral pop music", "top pop songs now",
-        "best pop 2026 playlist", "new pop releases", "pop chart hits", "summer pop 2026",
-        "pop bangers 2026", "feel good pop songs"
-    ],
-    "Bollywood": [
-        "bollywood hits 2026", "new bollywood songs", "bollywood romantic songs",
-        "bollywood party songs 2026", "latest hindi songs", "new hindi movie songs",
-        "bollywood top 10 2026", "arijit singh new songs", "atif aslam hits",
-        "bollywood trending songs this week"
-    ],
-    "Hip-Hop / Rap": [
-        "hip hop hits 2026", "rap songs 2026", "new rap releases", "trap music 2026",
-        "hip hop bangers", "best rap songs now", "underground rap 2026",
-        "drill music hits", "kendrick lamar new", "drake hits 2026"
-    ],
-    "Punjabi": [
-        "punjabi hits 2026", "new punjabi songs", "punjabi party songs",
-        "karan aujla new songs", "diljit dosanjh hits", "ap dhillon new songs",
-        "punjabi pop 2026", "bhangra hits 2026", "punjabi trending this week",
-        "sidhu moosewala songs"
-    ],
-    "EDM / Dance": [
-        "edm hits 2026", "dance music 2026", "electronic dance music",
-        "edm bangers", "house music 2026", "trance hits", "edm drop songs",
-        "martin garrix new", "alan walker 2026", "festival edm 2026"
-    ],
-    "Lo-Fi Chill": [
-        "lofi hip hop 2026", "lofi chill beats", "lofi study music",
-        "chill lofi playlist", "lofi beats to relax", "aesthetic lofi",
-        "lofi jazz vibes", "late night lofi", "cozy lofi music", "lofi hip hop radio"
-    ],
-    "R&B / Soul": [
-        "rnb hits 2026", "soul music 2026", "new rnb songs", "smooth rnb",
-        "neo soul 2026", "rnb slow jams", "the weeknd rnb", "sza new songs",
-        "frank ocean vibes", "rnb chill 2026"
-    ],
-    "Rock / Metal": [
-        "rock hits 2026", "metal songs 2026", "rock anthems", "new rock releases",
-        "indie rock 2026", "alternative rock hits", "hard rock 2026",
-        "classic rock", "rock bangers", "punk rock 2026"
-    ],
-    "K-Pop": [
-        "kpop hits 2026", "new kpop songs", "kpop bts new", "blackpink hits",
-        "kpop trending", "kpop playlist 2026", "stray kids hits",
-        "newjeans songs", "kpop girl group 2026", "kpop boy group 2026"
-    ],
-    "South Indian": [
-        "tamil hits 2026", "telugu songs 2026", "anirudh ravichander hits",
-        "south indian hits 2026", "kollywood songs", "tollywood hits",
-        "tamil trending songs", "devi sri prasad hits", "thaman songs 2026",
-        "south indian romantic songs"
-    ],
-    "Latin / Reggaeton": [
-        "reggaeton hits 2026", "latin pop 2026", "bad bunny new songs",
-        "j balvin hits", "latin music trending", "reggaeton party",
-        "latin hits playlist", "maluma songs", "ozuna 2026", "latin bangers"
-    ],
-    "Acoustic / Indie": [
-        "acoustic songs 2026", "indie folk 2026", "acoustic covers", "indie pop hits",
-        "acoustic guitar songs", "indie singer songwriter", "coffeehouse acoustic",
-        "indie music 2026", "bedroom pop hits", "acoustic ballads"
-    ],
-    "Phonk": [
-        "phonk music 2026", "drift phonk", "phonk hits playlist",
-        "aggressive phonk", "phonk car music", "best phonk 2026",
-        "phonk remix", "phonk edm", "dark phonk beats", "phonk trending"
-    ],
-    "Hollywood / English": [
-        "english hits 2026", "new english songs", "top english songs this week",
-        "billboard hot 100 2026", "english pop hits", "us chart hits",
-        "new music friday english", "viral english songs", "western hits 2026",
-        "english trending songs"
-    ]
-}
-
-// Generic fallback pools by country
-let COUNTRY_KEYWORD_POOL = {
-    "IN": [
-        "trending songs india 2026", "india top 50 hits", "bollywood 2026",
-        "punjabi top hits 2026", "south indian viral songs", "hindi pop 2026",
-        "desi hits 2026", "india viral songs this week"
-    ],
-    "US": [
-        "usa top hits 2026", "billboard hot 100", "american pop 2026",
-        "us rap hits 2026", "us chart toppers", "new american songs",
-        "us viral songs this week", "top 40 usa 2026"
-    ],
-    "GB": [
-        "uk hits 2026", "uk charts 2026", "british pop songs",
-        "uk garage hits", "grime music 2026", "uk drill 2026",
-        "uk viral songs", "british artists 2026"
-    ],
-    "BR": [
-        "funk brasileiro 2026", "pagode hits", "sertanejo 2026",
-        "musica brasileira trending", "funk carioca 2026", "axe music",
-        "brazil top hits 2026", "pop brasil 2026"
-    ],
-    "DEFAULT": [
-        "world music hits 2026", "global viral songs", "international hits",
-        "world top 50", "global trending music", "popular songs worldwide",
-        "international pop 2026", "global chart toppers"
-    ]
-}
-
-// Podcast keyword pool
-let PODCAST_KEYWORD_POOL = [
-    "the ranveer show trs podcast 2026",
-    "huberman lab podcast dopamine",
-    "sam altman figuring out raj shamani",
-    "joe rogan experience podcast 2026",
-    "science vs podcast spotify",
-    "nikhil kamath wtf podcast",
-    "lex fridman podcast 2026",
-    "tim ferriss show podcast",
-    "how i built this podcast",
-    "diary of a ceo podcast"
-]
+import std.string
 
 fn record_event(profiles, events, user_id, body):
     let track_id = body["trackId"]
@@ -188,6 +21,13 @@ fn record_event(profiles, events, user_id, body):
     if contains(keys(body), "genre"):
         genre = body["genre"]
 
+    // Only qualified listening counts toward taste and most-listened rankings.
+    if event_type == "listen" and played_seconds < 30:
+        return nil
+    if event_type == "listen" and contains(keys(body), "playbackId"):
+        for previous in events:
+            if previous["userId"] == user_id and contains(keys(previous), "playbackId") and previous["playbackId"] == body["playbackId"]:
+                return nil
     let event_record = {
         "id": "evt_" + str(time.now()) + "_" + crypto.random_bytes(3),
         "userId": user_id,
@@ -199,6 +39,8 @@ fn record_event(profiles, events, user_id, body):
         "genre": genre,
         "timestamp": time.now()
     }
+    if contains(keys(body), "playbackId"):
+        event_record["playbackId"] = body["playbackId"]
     append(events, event_record)
 
     if len(user_id) > 0 and user_id != "anonymous":
@@ -214,8 +56,16 @@ fn record_event(profiles, events, user_id, body):
             }
 
         let user_prof = profiles[user_id]
+        if !contains(keys(user_prof), "listens"):
+            user_prof["listens"] = {}
+        if event_type == "listen" and contains(keys(body), "title") and contains(keys(body), "thumbnail"):
+            let mut count = 0
+            if contains(keys(user_prof["listens"]), track_id):
+                count = user_prof["listens"][track_id]["playCount"]
+            user_prof["listens"][track_id] = {"id": track_id, "title": body["title"], "artist": artist, "thumbnail": body["thumbnail"], "duration": "", "genre": genre, "playCount": count + 1, "lastPlayed": time.now()}
 
-        if event_type == "play" or event_type == "complete":
+
+        if event_type == "listen":
             if len(artist) > 0:
                 let mut cur = 0.5
                 if contains(keys(user_prof["preferredArtists"]), artist):
@@ -228,8 +78,12 @@ fn record_event(profiles, events, user_id, body):
                     cur_g = user_prof["preferredGenres"][genre]
                 user_prof["preferredGenres"][genre] = cur_g + 0.35
 
-            if !contains(user_prof["history"], track_id):
-                append(user_prof["history"], track_id)
+            let mut recent = []
+            for previous in user_prof["history"]:
+                if previous != track_id:
+                    append(recent, previous)
+            append(recent, track_id)
+            user_prof["history"] = recent
 
         elif event_type == "like":
             if !contains(user_prof["likedTracks"], track_id):
@@ -270,83 +124,53 @@ fn record_event(profiles, events, user_id, body):
                 if len(artist) > 0 and contains(keys(user_prof["preferredArtists"]), artist):
                     user_prof["preferredArtists"][artist] = user_prof["preferredArtists"][artist] - 0.15
 
-// Pick N random items from a list using current time + seed as entropy
-fn pick_random_n(pool, n, seed):
-    let pool_len = len(pool)
-    if pool_len == 0:
-        return []
-    if n >= pool_len:
-        return pool
 
-    // Shuffle-like selection using seed
-    let mut picked = []
+fn most_listened(profile):
+    let mut ranked = []
+    if profile == nil or !contains(keys(profile), "listens"):
+        return ranked
+    let listens = profile["listens"]
     let mut used = []
-    let mut i = 0
-    let mut attempts = 0
-    while len(picked) < n and attempts < pool_len * 3:
-        let idx = (seed + i * 7 + attempts * 3) % pool_len
-        if !contains(used, idx):
-            append(used, idx)
-            append(picked, pool[idx])
-        i = i + 1
-        attempts = attempts + 1
-    return picked
+    for i in range(0, 12):
+        let mut best = nil
+        for id in keys(listens):
+            let item = listens[id]
+            if !contains(used, id):
+                if best == nil:
+                    best = item
+                elif item["playCount"] > best["playCount"]:
+                    best = item
+                elif item["playCount"] == best["playCount"] and item["lastPlayed"] > best["lastPlayed"]:
+                    best = item
+        if best == nil:
+            break
+        append(used, best["id"])
+        append(ranked, best)
+    return ranked
 
-fn generate_keywords_for_user(category, country, user_prof, seed):
-    let mut keywords = []
-
-    if category == "Podcasts":
-        // Pick 5 random podcasts from pool
-        keywords = pick_random_n(PODCAST_KEYWORD_POOL, 5, seed)
-        return keywords
-
-    if user_prof != nil:
-        // 1. Top scored genres → pick random keywords from their pools
-        let pref_genres = user_prof["preferredGenres"]
-        let mut genre_list = []
-        for g in keys(pref_genres):
-            if pref_genres[g] > 0.4:
-                append(genre_list, g)
-
-        for g in genre_list:
-            if contains(keys(GENRE_KEYWORD_POOL), g):
-                let pool = GENRE_KEYWORD_POOL[g]
-                // Pick 2 random keywords from this genre's pool
-                let picked = pick_random_n(pool, 2, seed + len(g))
-                for kw in picked:
-                    append(keywords, kw)
-
-        // 2. Top scored artists → direct artist search queries
-        let pref_artists = user_prof["preferredArtists"]
-        let mut artist_list = []
-        for a in keys(pref_artists):
-            if pref_artists[a] > 0.6:
-                append(artist_list, a)
-
-        // Pick 2 random artists and add them as queries
-        let picked_artists = pick_random_n(artist_list, 2, seed + 13)
-        for a in picked_artists:
-            append(keywords, a + " latest songs 2026")
-
-    // 3. Fill remaining slots with random country-specific keywords
-    let c_pool_key = country
-    let mut c_pool = COUNTRY_KEYWORD_POOL["DEFAULT"]
-    if contains(keys(COUNTRY_KEYWORD_POOL), country):
-        c_pool = COUNTRY_KEYWORD_POOL[country]
-
-    // Always add 3 random country keywords so every request has fresh variety
-    let country_picks = pick_random_n(c_pool, 3, seed + 31)
-    for kw in country_picks:
-        append(keywords, kw)
-
-    // 4. If still too few (new user with no history), fill from multiple genre pools
-    if len(keywords) < 4:
-        let all_genre_keys = keys(GENRE_KEYWORD_POOL)
-        let genre_picks = pick_random_n(all_genre_keys, 3, seed + 53)
-        for g in genre_picks:
-            let pool = GENRE_KEYWORD_POOL[g]
-            let kw = pick_random_n(pool, 1, seed + len(g) + 71)
-            for k in kw:
-                append(keywords, k)
-
-    return keywords
+fn choose_tracks(pools, excluded, disliked, skipped, history, limit):
+    let mut result = []
+    let mut seen = excluded
+    let mut signatures = []
+    let mut artist_counts = {}
+    // First suggest discoveries; familiar tracks may fill remaining places.
+    for familiar in range(0, 2):
+        for depth in range(0, 50):
+            for pool in pools:
+                if depth < len(pool):
+                    let item = pool[depth]
+                    let id = item["id"]
+                    let artist = item["artist"]
+                    let signature = string.to_lower(item["title"]) + "_" + string.to_lower(artist)
+                    let mut count = 0
+                    if contains(keys(artist_counts), artist):
+                        count = artist_counts[artist]
+                    if !contains(seen, id) and !contains(signatures, signature) and !contains(disliked, id) and !contains(skipped, id) and count < 3:
+                        if familiar == 1 or !contains(history, id):
+                            append(seen, id)
+                            append(signatures, signature)
+                            append(result, item)
+                            artist_counts[artist] = count + 1
+                            if len(result) >= limit:
+                                return result
+    return result

@@ -1,0 +1,454 @@
+{
+  "contents": [
+    {
+      "musicTwoRowItemRenderer": {
+        "thumbnailRenderer": {
+          "musicThumbnailRenderer": {
+            "thumbnail": {
+              "thumbnails": [
+                {
+                  "url": "https://yt3.googleusercontent.com/nanEcMRKtqe9WHRVxXUnBZO2k5RUxkDnD_7HovSQo3pNJsBYftr9wL9H8FEkiJn6d7DqM9tEt86BjezIBw=w226-h226-l90-rj",
+                  "width": 226,
+                  "height": 226
+                },
+                {
+                  "url": "https://yt3.googleusercontent.com/nanEcMRKtqe9WHRVxXUnBZO2k5RUxkDnD_7HovSQo3pNJsBYftr9wL9H8FEkiJn6d7DqM9tEt86BjezIBw=w544-h544-l90-rj",
+                  "width": 544,
+                  "height": 544
+                }
+              ]
+            },
+            "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+            "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+          }
+        },
+        "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+        "title": {
+          "runs": [
+            {
+              "text": "A Veces Solo Me Divierto",
+              "navigationEndpoint": {
+                "browseEndpoint": {
+                  "browseId": "MPREb_RripF1d7N1i",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "subtitle": {
+          "runs": [
+            {
+              "text": "Album"
+            },
+            {
+              "text": " • "
+            },
+            {
+              "text": "DUKI",
+              "navigationEndpoint": {
+                "browseEndpoint": {
+                  "browseId": "UCtLchRAZex11gn-ah1_1Pgw",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "navigationEndpoint": {
+          "browseEndpoint": {
+            "browseId": "MPREb_RripF1d7N1i",
+            "browseEndpointContextSupportedConfigs": {
+              "browseEndpointContextMusicConfig": {
+                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "musicTwoRowItemRenderer": {
+        "thumbnailRenderer": {
+          "musicThumbnailRenderer": {
+            "thumbnail": {
+              "thumbnails": [
+                {
+                  "url": "https://yt3.googleusercontent.com/wwIXuGrx0uolUZG8YZj5BHkwQfkpWnrqkuI2BkkjFdkFmKB25iiqU_NOQFLWFmwYd9UHUDHRkDeAVKz0=w226-h226-l90-rj",
+                  "width": 226,
+                  "height": 226
+                },
+                {
+                  "url": "https://yt3.googleusercontent.com/wwIXuGrx0uolUZG8YZj5BHkwQfkpWnrqkuI2BkkjFdkFmKB25iiqU_NOQFLWFmwYd9UHUDHRkDeAVKz0=w544-h544-l90-rj",
+                  "width": 544,
+                  "height": 544
+                }
+              ]
+            },
+            "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+            "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+          }
+        },
+        "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+        "title": {
+          "runs": [
+            {
+              "text": "Vol. 5: Vampires & Astronauts (Disc 2)",
+              "navigationEndpoint": {
+                "browseEndpoint": {
+                  "browseId": "MPREb_wj35Onpz3HD",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "subtitle": {
+          "runs": [
+            {
+              "text": "Album"
+            },
+            {
+              "text": " • "
+            },
+            {
+              "text": "Scotty OTH",
+              "navigationEndpoint": {
+                "browseEndpoint": {
+                  "browseId": "UCe7cgDvxwvjmsmd1sdSoaDw",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "text": " & "
+            },
+            {
+              "text": "Lil Poppa",
+              "navigationEndpoint": {
+                "browseEndpoint": {
+                  "browseId": "UCN3KZ6fTRRS01alxefu3WHQ",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "navigationEndpoint": {
+          "browseEndpoint": {
+            "browseId": "MPREb_wj35Onpz3HD",
+            "browseEndpointContextSupportedConfigs": {
+              "browseEndpointContextMusicConfig": {
+                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+              }
+            }
+          }
+        },
+        "subtitleBadges": [
+          {
+            "musicInlineBadgeRenderer": {
+              "icon": {
+                "iconType": "MUSIC_EXPLICIT_BADGE"
+              },
+              "accessibilityData": {
+                "accessibilityData": {
+                  "label": "Explicit"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "musicTwoRowItemRenderer": {
+        "thumbnailRenderer": {
+          "musicThumbnailRenderer": {
+            "thumbnail": {
+              "thumbnails": [
+                {
+                  "url": "https://yt3.googleusercontent.com/FYXoJmvKzXWO94mliOaDUO7oyjzLbSuZqSTM3SkcpXEEXqptZ-kKqqcmx0_tuY2DDC_MEJ5V_KK9sXc=w226-h226-l90-rj",
+                  "width": 226,
+                  "height": 226
+                },
+                {
+                  "url": "https://yt3.googleusercontent.com/FYXoJmvKzXWO94mliOaDUO7oyjzLbSuZqSTM3SkcpXEEXqptZ-kKqqcmx0_tuY2DDC_MEJ5V_KK9sXc=w544-h544-l90-rj",
+                  "width": 544,
+                  "height": 544
+                }
+              ]
+            },
+            "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+            "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+          }
+        },
+        "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+        "title": {
+          "runs": [
+            {
+              "text": "Where the Broken Roads Meet",
+              "navigationEndpoint": {
+                "browseEndpoint": {
+                  "browseId": "MPREb_RcfF1NhUKeC",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "subtitle": {
+          "runs": [
+            {
+              "text": "Album"
+            },
+            {
+              "text": " • "
+            },
+            {
+              "text": "Ash Reed Music",
+              "navigationEndpoint": {
+                "browseEndpoint": {
+                  "browseId": "UCdXJLWIt5-BQHazS3Y6eH4A",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "navigationEndpoint": {
+          "browseEndpoint": {
+            "browseId": "MPREb_RcfF1NhUKeC",
+            "browseEndpointContextSupportedConfigs": {
+              "browseEndpointContextMusicConfig": {
+                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "musicTwoRowItemRenderer": {
+        "thumbnailRenderer": {
+          "musicThumbnailRenderer": {
+            "thumbnail": {
+              "thumbnails": [
+                {
+                  "url": "https://i.ytimg.com/vi/FhyByloD6bk/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kNPdi8cir6iVDjL8N2GX6SoIxzmw",
+                  "width": 400,
+                  "height": 225
+                },
+                {
+                  "url": "https://i.ytimg.com/vi/FhyByloD6bk/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3mDx5IsdH105w8a1bCqRwu7ssbH7Q",
+                  "width": 800,
+                  "height": 450
+                }
+              ]
+            },
+            "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+            "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+          }
+        },
+        "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_RECTANGLE_16_9",
+        "title": {
+          "runs": [
+            {
+              "text": "PEDA DE VATOS Vol.10 - Elías Medina | (Video Oficial)"
+            }
+          ]
+        },
+        "subtitle": {
+          "runs": [
+            {
+              "text": "Elías Medina",
+              "navigationEndpoint": {
+                "browseEndpoint": {
+                  "browseId": "UC3dd2BrVeMi2dOkcd0bRRlg",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "text": " • "
+            },
+            {
+              "text": "305K views"
+            }
+          ]
+        },
+        "navigationEndpoint": {
+          "watchEndpoint": {
+            "videoId": "FhyByloD6bk",
+            "watchEndpointMusicSupportedConfigs": {
+              "watchEndpointMusicConfig": {
+                "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "musicTwoRowItemRenderer": {
+        "thumbnailRenderer": {
+          "musicThumbnailRenderer": {
+            "thumbnail": {
+              "thumbnails": [
+                {
+                  "url": "https://i.ytimg.com/vi/uKTiRgENw_k/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mMNRfGk2xU1_cAXGf5TbHrgDILeA",
+                  "width": 400,
+                  "height": 225
+                },
+                {
+                  "url": "https://i.ytimg.com/vi/uKTiRgENw_k/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3k1r4xT9DmFdhDUFDKOobrDmH3Dqg",
+                  "width": 800,
+                  "height": 450
+                }
+              ]
+            },
+            "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+            "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+          }
+        },
+        "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_RECTANGLE_16_9",
+        "title": {
+          "runs": [
+            {
+              "text": "Fabolous - Bahama MaMa Freestyle (Official Video)"
+            }
+          ]
+        },
+        "subtitle": {
+          "runs": [
+            {
+              "text": "Fabolous",
+              "navigationEndpoint": {
+                "browseEndpoint": {
+                  "browseId": "UCws01WszuWPmI8Xs-gIFHOg",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "text": " • "
+            },
+            {
+              "text": "506K views"
+            }
+          ]
+        },
+        "navigationEndpoint": {
+          "watchEndpoint": {
+            "videoId": "uKTiRgENw_k",
+            "watchEndpointMusicSupportedConfigs": {
+              "watchEndpointMusicConfig": {
+                "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "musicTwoRowItemRenderer": {
+        "thumbnailRenderer": {
+          "musicThumbnailRenderer": {
+            "thumbnail": {
+              "thumbnails": [
+                {
+                  "url": "https://i.ytimg.com/vi/vnzuVECDD_E/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3n7OOJQjTfcD1rMyoLSXmiCD4o9MQ",
+                  "width": 400,
+                  "height": 225
+                },
+                {
+                  "url": "https://i.ytimg.com/vi/vnzuVECDD_E/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3k8s51hUJzPi9DRLUdW-EcMg751MA",
+                  "width": 800,
+                  "height": 450
+                }
+              ]
+            },
+            "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+            "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+          }
+        },
+        "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_RECTANGLE_16_9",
+        "title": {
+          "runs": [
+            {
+              "text": "初音 - Hatsune (feat. Hatsune Miku & IA)"
+            }
+          ]
+        },
+        "subtitle": {
+          "runs": [
+            {
+              "text": "Unreal Vision",
+              "navigationEndpoint": {
+                "browseEndpoint": {
+                  "browseId": "UCxSdyjz3Nv-hJl-4Gs6UFDA",
+                  "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "text": " • "
+            },
+            {
+              "text": "289K views"
+            }
+          ]
+        },
+        "navigationEndpoint": {
+          "watchEndpoint": {
+            "videoId": "vnzuVECDD_E",
+            "watchEndpointMusicSupportedConfigs": {
+              "watchEndpointMusicConfig": {
+                "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

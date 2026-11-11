@@ -751,9 +751,9 @@ fn handle_recommendation_event(req):
     if claims != nil and contains(keys(claims), "userId"):
         user_id = claims["userId"]
     elif contains(keys(headers), "x-session-id") and len(headers["x-session-id"]) > 0:
-        user_id = headers["x-session-id"]
+        user_id = "device_" + crypto.hmac_sha256(JWT_SECRET, headers["x-session-id"])
     elif contains(keys(headers), "x-device-id") and len(headers["x-device-id"]) > 0:
-        user_id = headers["x-device-id"]
+        user_id = "device_" + crypto.hmac_sha256(JWT_SECRET, headers["x-device-id"])
 
     let body = req.json()
     if !contains(keys(body), "trackId") or !contains(keys(body), "eventType"):
@@ -762,6 +762,17 @@ fn handle_recommendation_event(req):
             "body": { "error": "Missing 'trackId' or 'eventType'" }
         }
 
+    if typeof(body["trackId"]) != "String" or len(body["trackId"]) != 11:
+        return {"status": 400, "body": {"error": "Invalid track id"}}
+    if !contains(["play", "complete", "listen", "like", "dislike", "skip", "add_to_playlist"], body["eventType"]):
+        return {"status": 400, "body": {"error": "Invalid event type"}}
+    if body["eventType"] == "listen":
+        if !contains(keys(body), "playedSeconds") or typeof(body["playedSeconds"]) != "Int":
+            return {"status": 400, "body": {"error": "Missing listened duration"}}
+        if !contains(keys(body), "title") or typeof(body["title"]) != "String" or len(body["title"]) > 500:
+            return {"status": 400, "body": {"error": "Missing track title"}}
+        if !contains(keys(body), "thumbnail") or typeof(body["thumbnail"]) != "String" or len(body["thumbnail"]) > 2000:
+            return {"status": 400, "body": {"error": "Missing artwork"}}
     recommendations.record_event(profiles, events, user_id, body)
     database.save_db("events.json", events)
     database.save_db("profiles.json", profiles)
@@ -786,9 +797,9 @@ fn handle_feed(req):
     if claims != nil and contains(keys(claims), "userId"):
         user_id = claims["userId"]
     elif contains(keys(headers), "x-session-id") and len(headers["x-session-id"]) > 0:
-        user_id = headers["x-session-id"]
+        user_id = "device_" + crypto.hmac_sha256(JWT_SECRET, headers["x-session-id"])
     elif contains(keys(headers), "x-device-id") and len(headers["x-device-id"]) > 0:
-        user_id = headers["x-device-id"]
+        user_id = "device_" + crypto.hmac_sha256(JWT_SECRET, headers["x-device-id"])
 
     let mut user_prof = nil
     if len(user_id) > 0 and contains(keys(profiles), user_id):
@@ -807,216 +818,51 @@ fn handle_feed(req):
     elif contains(keys(headers), "x-country-code") and len(headers["x-country-code"]) > 0:
         country = headers["x-country-code"]
 
-    let keywords = recommendations.generate_keywords_for_user(category, country, user_prof, int(time.now() * 1000) % 9999)
-
-    // Execute queries with user-scoped cache — each user gets their own fresh pool
-    let mut track_pools = []
-    let max_keywords = 6
-    let num_kw = len(keywords)
-
-    let mut kw_count = 0
-    for i in range(0, num_kw) {
-        if kw_count < max_keywords:
-            let kw = keywords[i]
-            let pool = innertube.search_youtube_cached_for_user(kw, country, user_id)
-            if len(pool) > 0:
-                append(track_pools, pool)
-            kw_count = kw_count + 1
-    }
-
-    // Interleave tracks into main pool (deduplicated, anti-artist saturation max 2 per artist)
-    let mut blended_tracks = []
-    let mut seen_ids = []
-    let mut artist_counts = {}
-
+    let releases = innertube.browse("FEmusic_new_releases", country)
+    let charts = innertube.browse("FEmusic_charts", country)
+    let most = recommendations.most_listened(user_prof)
+    let mut pools = []
+    let mut history = []
     let mut disliked = []
+    let mut skipped = []
     if user_prof != nil:
+        history = user_prof["history"]
         disliked = user_prof["dislikedTracks"]
-
-    let max_depth = 15
-    for depth in range(0, max_depth) {
-        for pool in track_pools {
-            if depth < len(pool):
-                let t = pool[depth]
-                let t_id = t["id"]
-                let t_artist = t["artist"]
-
-                if !contains(seen_ids, t_id) and !contains(disliked, t_id):
-                    let mut a_cnt = 0
-                    if contains(keys(artist_counts), t_artist):
-                        a_cnt = artist_counts[t_artist]
-
-                    if a_cnt < 2:
-                        append(seen_ids, t_id)
-                        artist_counts[t_artist] = a_cnt + 1
-                        append(blended_tracks, t)
-        }
-    }
-
-    if len(blended_tracks) == 0:
-        blended_tracks = recommendations.CATALOG_TRACKS
-
-    let featured = blended_tracks[0]
-
-    // Split into recommended (first half) and trending (second half)
-    // so both sections show DIFFERENT songs, not alternating from the same pool
-    let total = len(blended_tracks)
-    let half = total / 2
-    let mut recommended_tracks = []
-    let mut trending_tracks = []
-
-    for i in range(0, total) {
-        if i < half:
-            append(recommended_tracks, blended_tracks[i])
-        else:
-            append(trending_tracks, blended_tracks[i])
-    }
-
-    // If not enough tracks for both sections, fetch a separate trending pool
-    if len(trending_tracks) < 5:
-        let mut trending_kw = "global trending music 2026"
-        if country == "IN":
-            trending_kw = "india viral songs this week"
-        elif country == "US":
-            trending_kw = "us chart toppers 2026"
-        let trend_pool = innertube.search_youtube_cached_for_user(trending_kw, country, user_id + "_t")
-        let mut t_seen = []
-        for bt in blended_tracks {
-            append(t_seen, bt["id"])
-        }
-        for tr in trend_pool {
-            if !contains(t_seen, tr["id"]) and len(trending_tracks) < 20:
-                append(trending_tracks, tr)
-        }
-
-    // Extract unique artists
-    let mut feed_artists = []
-    let mut seen_artists = []
-    for tr in blended_tracks {
-        let a_name = tr["artist"]
-        let a_thumb = tr["thumbnail"]
-        if len(a_name) > 0 and !contains(seen_artists, a_name) and a_name != "Various Artists" and a_name != "Song" and a_name != "Video":
-            append(seen_artists, a_name)
-            append(feed_artists, {
-                "name": a_name,
-                "imageUrl": a_thumb,
-                "genre": tr["genre"]
-            })
-            if len(feed_artists) >= 12:
-                break
-    }
-
-    // Partition into personalized mixes
-    let mut daily_mix_tracks = []
-    let mut chill_mix_tracks = []
-    let mut workout_mix_tracks = []
-    let mut gems_mix_tracks = []
-
-    for i in range(0, len(blended_tracks)) {
-        let item = blended_tracks[i]
-        if i % 4 == 0:
-            append(daily_mix_tracks, item)
-        elif i % 4 == 1:
-            append(chill_mix_tracks, item)
-        elif i % 4 == 2:
-            append(workout_mix_tracks, item)
-        else:
-            append(gems_mix_tracks, item)
-    }
-
-    // Build personalized mix titles based on top preferred genre/artist
-    let mut daily_mix_title = "Daily Mix 1"
-    let mut chill_mix_title = "Chill Rotation"
-    let mut workout_mix_title = "Workout Energy"
-    let mut gems_mix_title = "Hidden Gems"
-
-    if user_prof != nil:
-        let pref_genres = user_prof["preferredGenres"]
-        let mut top_genre = ""
-        let mut top_genre_score = 0.0
-        for g in keys(pref_genres):
-            if pref_genres[g] > top_genre_score:
-                top_genre_score = pref_genres[g]
-                top_genre = g
-
-        if len(top_genre) > 0:
-            daily_mix_title = top_genre + " Mix"
-            gems_mix_title = "More " + top_genre
-
-        let pref_artists = user_prof["preferredArtists"]
-        let mut top_artist = ""
-        let mut top_artist_score = 0.0
-        for a in keys(pref_artists):
-            if pref_artists[a] > top_artist_score:
-                top_artist_score = pref_artists[a]
-                top_artist = a
-
-        if len(top_artist) > 0:
-            chill_mix_title = top_artist + " Radio"
-
-    // Use user_id in mix IDs so Flutter can cache per-user and avoid stale same-content tiles
-    let mut mix_id_prefix = "anon"
-    if len(user_id) > 0:
-        mix_id_prefix = user_id
-
-    let mixes = [
-        {
-            "id": "mix_daily_" + mix_id_prefix,
-            "title": daily_mix_title,
-            "description": "Personalized blend matching your latest musical affinity.",
-            "coverUrl": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&q=80",
-            "tracks": daily_mix_tracks,
-            "isAutoGenerated": true
-        },
-        {
-            "id": "mix_chill_" + mix_id_prefix,
-            "title": chill_mix_title,
-            "description": "Acoustic vibes, lo-fi beats, and relaxing melodies.",
-            "coverUrl": "https://images.unsplash.com/photo-1445985543470-41fdd6ce388d?w=600&q=80",
-            "tracks": chill_mix_tracks,
-            "isAutoGenerated": true
-        },
-        {
-            "id": "mix_workout_" + mix_id_prefix,
-            "title": workout_mix_title,
-            "description": "High-octane power tracks to push your limits.",
-            "coverUrl": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=600&q=80",
-            "tracks": workout_mix_tracks,
-            "isAutoGenerated": true
-        },
-        {
-            "id": "mix_gems_" + mix_id_prefix,
-            "title": gems_mix_title,
-            "description": "Undiscovered sounds tailored to your unique tastes.",
-            "coverUrl": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80",
-            "tracks": gems_mix_tracks,
-            "isAutoGenerated": true
-        }
-    ]
-
-    // Build list of user's active interest genres for Flutter to use in "load more"
-    let mut user_interests = []
-    if user_prof != nil:
-        let pref_genres = user_prof["preferredGenres"]
-        for g in keys(pref_genres):
-            if pref_genres[g] > 0.4:
-                append(user_interests, g)
-
-    return {
-        "status": 200,
-        "body": {
-            "category": category,
-            "country": country,
-            "userId": user_id,
-            "userInterests": user_interests,
-            "featured": featured,
-            "recommendedForYou": recommended_tracks,
-            "trending": trending_tracks,
-            "artists": feed_artists,
-            "mixes": mixes,
-            "algorithmVersion": "NextViper-RS-Dynamic-3.2"
-        }
-    }
+        skipped = user_prof["skippedTracks"]
+        if len(history) > 0:
+            append(pools, innertube.related(history[len(history) - 1], country))
+    if len(most) > 0:
+        append(pools, innertube.related(most[0]["id"], country))
+    append(pools, charts["songs"])
+    if len(pools) == 1 and len(charts["songs"]) == 0:
+        let mut discovery = []
+        for item in releases["songs"]:
+            if len(discovery) < 6:
+                append(discovery, item)
+        append(pools, discovery)
+    let mut excluded = []
+    if contains(keys(query_map), "exclude") and len(query_map["exclude"]) < 2400:
+        excluded = string.split(query_map["exclude"], ",")
+    let recommended = recommendations.choose_tracks(pools, excluded, disliked, skipped, history, 30)
+    let mut visible_ids = []
+    for item in recommended:
+        append(visible_ids, item["id"])
+    let trending = recommendations.choose_tracks([charts["songs"]], visible_ids, disliked, skipped, [], 12)
+    for item in trending:
+        append(visible_ids, item["id"])
+    let new_releases = recommendations.choose_tracks([releases["songs"]], visible_ids, disliked, [], [], 18)
+    let mut featured = nil
+    if len(recommended) > 0:
+        featured = recommended[0]
+    return {"status": 200, "body": {
+        "category": category, "country": country,
+        "featured": featured, "recommendedForYou": recommended,
+        "trending": trending, "newReleases": new_releases,
+        "releaseAlbums": releases["albums"], "mostListened": most,
+        "artists": charts["artists"], "mixes": [], "userInterests": [],
+        "recommendationSource": "YouTube Music radio from your listening history, charts and new releases",
+        "algorithmVersion": "NextViper-Radio-4.0"
+    }}
 
 app.get("/api/recommendations/feed", handle_feed)
 
@@ -1042,7 +888,8 @@ fn handle_search(req):
         }
 
     print("Searching YouTube Music for:", q, "(country: " + country + ")")
-    let results = innertube.search_youtube_cached(q, country)
+    let search_data = innertube.search_all(q, country)
+    let results = search_data["songs"]
 
     return {
         "status": 200,
@@ -1050,11 +897,39 @@ fn handle_search(req):
             "query": q,
             "country": country,
             "count": len(results),
-            "results": results
+            "results": results,
+            "artists": search_data["artists"],
+            "albums": search_data["albums"]
         }
     }
 
 app.get("/api/search", handle_search)
+
+// Browse real artist/album identities from upstream search results.
+fn handle_browse(req):
+    let rate_error = rate_limits.check(req, "search")
+    if rate_error != nil:
+        return rate_error
+    let id = innertube.at(req, ["query", "id"])
+    if typeof(id) != "String":
+        return {"status": 400, "body": {"error": "Missing browse id"}}
+    if len(id) > 100 or (!id.starts_with("UC") and !id.starts_with("MPRE")):
+        return {"status": 400, "body": {"error": "Invalid browse id"}}
+    let data = innertube.browse(id, "IN")
+    return {"status": 200, "body": data}
+
+app.get("/api/browse", handle_browse)
+
+fn handle_related(req):
+    let rate_error = rate_limits.check(req, "search")
+    if rate_error != nil:
+        return rate_error
+    let id = innertube.at(req, ["query", "id"])
+    if typeof(id) != "String" or len(id) != 11:
+        return {"status": 400, "body": {"error": "Invalid track id"}}
+    return {"status": 200, "body": {"results": innertube.related(id, "IN")}}
+
+app.get("/api/related", handle_related)
 
 // Track Stream Resolution Endpoint
 fn handle_resolve(req):
