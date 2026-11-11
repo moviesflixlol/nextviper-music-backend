@@ -24,9 +24,14 @@ class MusicRecommendations(auth_tests.AuthSecurity):
   s=s[:a]+'''fn request_items(endpoint, extra, country):
     if endpoint == "search":
         return parse_response(json.parse(fs.read_file("search.json")))
+    if endpoint == "next" and contains(keys(extra), "continuation"):
+        return {"songs": [{"id": "newtrack001", "title": "Next page song", "artist": "Other artist", "thumbnail": "own-cover.jpg"}], "nextCursor": "", "artists": [], "albums": [], "playlists": []}
     if endpoint == "next":
         return parse_response(json.parse(fs.read_file("radio.json")))
-    return parse_response(json.parse(fs.read_file("browse.json")))
+    let data = parse_response(json.parse(fs.read_file("browse.json")))
+    if contains(keys(extra), "browseId") and extra["browseId"] == "FEmusic_charts":
+        data["songs"] = []
+    return data
 
 '''+s[b:];p.write_text('import std.fs\n'+s)
   for name in ['search','radio','browse']:(cls.work/f'{name}.json').write_bytes((ROOT/'tests/fixtures'/f'{name}.json').read_bytes())
@@ -51,6 +56,11 @@ class MusicRecommendations(auth_tests.AuthSecurity):
   self.assertFalse(set(ids)&{t['id'] for t in more['recommendedForYou']})
   self.assertTrue(feed['releaseAlbums'])
   self.assertTrue(feed['recommendedForYou'])
+ def test_13_cursor_returns_new_tracks_and_explicit_end(self):
+  feed=self.request('/api/recommendations/feed')[1]
+  self.assertTrue(feed['hasMore']);self.assertEqual(feed['nextCursor'],'fixture-next-page')
+  page=self.request('/api/recommendations/feed?cursor=fixture-next-page')[1]
+  self.assertEqual(page['recommendedForYou'][0]['title'],'Next page song');self.assertFalse(page['hasMore'])
  def test_12_artist_search_and_browse_validation(self):
   status, data=self.request('/api/search?q=Billie')
   self.assertEqual(status,200);self.assertTrue(data['artists']);self.assertTrue(data['results'])

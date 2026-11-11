@@ -222,6 +222,13 @@ fn handle_verify_email(req):
         }
 
     if pending["otp"] != code:
+        let mut attempts = 0
+        if contains(keys(pending), "attempts"):
+            attempts = pending["attempts"]
+        pending["attempts"] = attempts + 1
+        if attempts + 1 >= 5:
+            PENDING_REGISTRATIONS[email] = nil
+            return {"status": 429, "headers": {"Retry-After": "600"}, "body": {"error": "Too many incorrect codes. Request a new code."}}
         return {
             "status": 400,
             "body": { "error": "Invalid verification code. Please check your email and try again." }
@@ -432,6 +439,13 @@ fn handle_reset_password(req):
         }
 
     if reset_req["otp"] != code:
+        let mut attempts = 0
+        if contains(keys(reset_req), "attempts"):
+            attempts = reset_req["attempts"]
+        reset_req["attempts"] = attempts + 1
+        if attempts + 1 >= 5:
+            PASSWORD_RESETS[email] = nil
+            return {"status": 429, "headers": {"Retry-After": "600"}, "body": {"error": "Too many incorrect codes. Request a new code."}}
         return {
             "status": 400,
             "body": { "error": "Invalid reset code. Please check your email and try again." }
@@ -493,6 +507,7 @@ fn handle_resend_code(req):
                 "body": { "error": "Email service daily limit reached. Please try again later." }
             }
         PASSWORD_RESETS[email]["otp"] = otp_code
+        PASSWORD_RESETS[email]["attempts"] = 0
         PASSWORD_RESETS[email]["expiresAt"] = time.now() + 600.0
         return {
             "status": 200,
@@ -509,6 +524,7 @@ fn handle_resend_code(req):
             return {"status": 503, "body": {"error": "Email delivery is unavailable. Please try again later."}}
 
         PENDING_REGISTRATIONS[email]["otp"] = otp_code
+        PENDING_REGISTRATIONS[email]["attempts"] = 0
         PENDING_REGISTRATIONS[email]["expiresAt"] = time.now() + 600.0
         return {
             "status": 200,
@@ -788,7 +804,7 @@ app.post("/api/recommendations/event", handle_recommendation_event)
 
 // Recommendations Feed (Category-Aware: All / Music / Podcasts)
 fn handle_feed(req):
-    let rate_error = rate_limits.check(req, "api")
+    let rate_error = rate_limits.check(req, "feed")
     if rate_error != nil:
         return rate_error
     let claims = authenticate_request(req)
@@ -818,9 +834,27 @@ fn handle_feed(req):
     elif contains(keys(headers), "x-country-code") and len(headers["x-country-code"]) > 0:
         country = headers["x-country-code"]
 
+    if contains(keys(query_map), "cursor") and len(query_map["cursor"]) > 0:
+        if len(query_map["cursor"]) > 8192:
+            return {"status": 400, "body": {"error": "Invalid page cursor"}}
+        let page = innertube.request_items("next", {"continuation": query_map["cursor"]}, country)
+        if contains(keys(page), "upstreamError"):
+            return {"status": 502, "body": {"error": "Music provider unavailable. Try again."}}
+        let mut excluded_page = []
+        if contains(keys(query_map), "exclude") and len(query_map["exclude"]) < 6000:
+            excluded_page = string.split(query_map["exclude"], ",")
+        let mut disliked_page = []
+        let mut skipped_page = []
+        if user_prof != nil:
+            disliked_page = user_prof["dislikedTracks"]
+            skipped_page = user_prof["skippedTracks"]
+        let tracks = recommendations.choose_tracks([page["songs"]], excluded_page, disliked_page, skipped_page, [], 50)
+        return {"status": 200, "body": {"country": country, "recommendedForYou": tracks, "nextCursor": page["nextCursor"], "hasMore": len(page["nextCursor"]) > 0}}
+
     let releases = innertube.browse("FEmusic_new_releases", country)
     let charts = innertube.charts(country)
     let most = recommendations.most_listened(user_prof)
+    let mut next_cursor = charts["nextCursor"]
     let mut pools = []
     let mut history = []
     let mut disliked = []
@@ -830,7 +864,10 @@ fn handle_feed(req):
         disliked = user_prof["dislikedTracks"]
         skipped = user_prof["skippedTracks"]
         if len(history) > 0:
-            append(pools, innertube.related(history[len(history) - 1], country))
+            let radio = innertube.related_page(history[len(history) - 1], country)
+            append(pools, radio["songs"])
+            if len(radio["nextCursor"]) > 0:
+                next_cursor = radio["nextCursor"]
     if len(most) > 0:
         append(pools, innertube.related(most[0]["id"], country))
     append(pools, charts["songs"])
@@ -841,7 +878,7 @@ fn handle_feed(req):
                 append(discovery, item)
         append(pools, discovery)
     let mut excluded = []
-    if contains(keys(query_map), "exclude") and len(query_map["exclude"]) < 2400:
+    if contains(keys(query_map), "exclude") and len(query_map["exclude"]) < 6000:
         excluded = string.split(query_map["exclude"], ",")
     let recommended = recommendations.choose_tracks(pools, excluded, disliked, skipped, history, 30)
     let mut visible_ids = []
@@ -861,7 +898,7 @@ fn handle_feed(req):
         "releaseAlbums": releases["albums"], "mostListened": most,
         "artists": charts["artists"], "mixes": [], "userInterests": [],
         "recommendationSource": "YouTube Music radio from your listening history, charts and new releases",
-        "algorithmVersion": "NextViper-Radio-4.0"
+        "algorithmVersion": "NextViper-Radio-4.1", "nextCursor": next_cursor, "hasMore": len(next_cursor) > 0
     }}
 
 app.get("/api/recommendations/feed", handle_feed)
@@ -881,6 +918,8 @@ fn handle_search(req):
     if contains(keys(query_map), "country"):
         country = query_map["country"]
 
+    if len(q) > 200:
+        return {"status": 400, "body": {"error": "Search query is too long"}}
     if len(q) == 0:
         return {
             "status": 400,

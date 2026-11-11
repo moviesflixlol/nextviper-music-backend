@@ -10,6 +10,8 @@ let EMAIL_LIMIT = 3
 let STATE_PATH = env.get("VIPER_EMAIL_LIMIT_PATH", "./data/email_limits.json")
 let API_LIMIT = int(env.get("VIPER_API_REQUESTS_PER_MINUTE", "240"))
 let AUTH_LIMIT = int(env.get("VIPER_AUTH_REQUESTS_PER_MINUTE", "20"))
+let FEED_LIMIT = int(env.get("VIPER_FEED_REQUESTS_PER_MINUTE", "20"))
+let EMAIL_GLOBAL_LIMIT = int(env.get("VIPER_EMAIL_GLOBAL_PER_HOUR", "60"))
 let SEARCH_LIMIT = int(env.get("VIPER_SEARCH_REQUESTS_PER_MINUTE", "60"))
 let mut email_events = {}
 let mut request_events = {}
@@ -40,6 +42,11 @@ fn email_allowed_at(email, now):
 fn email_throttle(email):
     let now = time.now()
     let entries = email_history_at(email, now)
+    let mut global_entries = []
+    if contains(keys(email_events), "_global"):
+        global_entries = recent(email_events["_global"], now, EMAIL_WINDOW)
+    if len(global_entries) >= EMAIL_GLOBAL_LIMIT:
+        return {"status": 429, "headers": {"Retry-After": "3600", "Cache-Control": "no-store"}, "body": {"error": "Email delivery limit reached. Try again later."}}
     if len(entries) < EMAIL_LIMIT:
         return nil
     let retry = int(entries[0] + EMAIL_WINDOW - now) + 1
@@ -49,6 +56,13 @@ fn reserve_email_at(email, now):
     let entries = email_history_at(email, now)
     if len(entries) >= EMAIL_LIMIT:
         return false
+    let mut global_entries = []
+    if contains(keys(email_events), "_global"):
+        global_entries = recent(email_events["_global"], now, EMAIL_WINDOW)
+    if len(global_entries) >= EMAIL_GLOBAL_LIMIT:
+        return false
+    append(global_entries, now)
+    email_events["_global"] = global_entries
     append(entries, now)
     email_events[email_key(email)] = entries
     fs.write_text(STATE_PATH + ".tmp", json.stringify(email_events))
@@ -83,6 +97,17 @@ fn check_at(req, group, now):
         limit = AUTH_LIMIT
     if group == "search":
         limit = SEARCH_LIMIT
+    if group == "feed":
+        limit = FEED_LIMIT
+    if len(keys(request_events)) > 4096:
+        let mut active = {}
+        for peer_key in keys(request_events):
+            let peer_entries = recent(request_events[peer_key], now, 60)
+            if len(peer_entries) > 0:
+                active[peer_key] = peer_entries
+        request_events = active
+        if len(keys(request_events)) > 8192 and !contains(keys(request_events), key):
+            return {"status": 429, "headers": {"Retry-After": "60"}, "body": {"error": "Server is busy. Try again shortly."}}
     let mut entries = []
     if contains(keys(request_events), key):
         entries = recent(request_events[key], now, 60)

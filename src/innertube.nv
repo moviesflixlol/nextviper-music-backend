@@ -101,7 +101,10 @@ fn parse_item(r, inherited_artist):
         duration = text_of(at(fixed[0], ["musicResponsiveListItemFixedColumnRenderer", "text"]))
     if typeof(runs) == "Array" and len(runs) > 0 and runs[0]["text"] == "Episode":
         return nil
-    let thumbnail = image_of(r)
+    // Read only this item's artwork, never a nested shelf/child's image.
+    let mut thumbnail = image_of(at(r, ["thumbnail"]))
+    if len(thumbnail) == 0:
+        thumbnail = image_of(at(r, ["thumbnailRenderer"]))
     if typeof(video_id) == "String" and len(video_id) > 0 and len(title) > 0:
         return {"kind": "song", "id": video_id, "title": title, "artist": artist, "artistId": artist_id, "duration": duration, "thumbnail": thumbnail, "genre": "", "source": "youtube_music"}
     if typeof(browse_id) == "String" and len(title) > 0:
@@ -143,10 +146,28 @@ fn collect(node, out, inherited_artist):
                 collect(node[key], out, inherited_artist)
     return nil
 
+fn continuation_of(node):
+    if typeof(node) == "Object":
+        for kind in ["nextRadioContinuationData", "nextContinuationData"]:
+            let token = at(node, [kind, "continuation"])
+            if typeof(token) == "String":
+                return token
+        for key in keys(node):
+            if key != "menu" and key != "overlay":
+                let token = continuation_of(node[key])
+                if len(token) > 0:
+                    return token
+    elif typeof(node) == "Array":
+        for item in node:
+            let token = continuation_of(item)
+            if len(token) > 0:
+                return token
+    return ""
+
 fn parse_response(data):
     let mut items = []
     collect(data, items, "")
-    let mut result = {"songs": [], "artists": [], "albums": [], "playlists": []}
+    let mut result = {"songs": [], "artists": [], "albums": [], "playlists": [], "nextCursor": continuation_of(data)}
     let mut seen = []
     for item in items:
         if !contains(seen, item["id"]):
@@ -179,7 +200,7 @@ fn request_items(endpoint, extra, country):
         body[key] = extra[key]
     let res = http.exchange({"url": "https://music.youtube.com/youtubei/v1/" + endpoint, "method": "POST", "body": json.stringify(body), "headers": build_innertube_headers(), "timeout_ms": 6000})
     if !res["ok"]:
-        return {"songs": [], "artists": [], "albums": [], "playlists": []}
+        return {"songs": [], "artists": [], "albums": [], "playlists": [], "nextCursor": "", "upstreamError": true}
     let parsed = parse_response(json.parse(res["data"]["body"]))
     if len(keys(SEARCH_CACHE)) >= 128:
         SEARCH_CACHE = {}
@@ -202,8 +223,11 @@ fn search_youtube_cached_for_user(q, country, user_id):
 fn browse(id, country):
     return request_items("browse", {"browseId": id}, country)
 
+fn related_page(id, country):
+    return request_items("next", {"videoId": id, "playlistId": "RDAMVM" + id}, country)
+
 fn related(id, country):
-    return request_items("next", {"videoId": id, "playlistId": "RDAMVM" + id}, country)["songs"]
+    return related_page(id, country)["songs"]
 
 fn resolve_innertube_stream(video_id):
     let body = {
@@ -282,5 +306,6 @@ fn charts(country):
                     playlist_id = playlist_id[2:]
                 let tracks = request_items("next", {"playlistId": playlist_id}, country)
                 data["songs"] = tracks["songs"]
+                data["nextCursor"] = tracks["nextCursor"]
                 break
     return data

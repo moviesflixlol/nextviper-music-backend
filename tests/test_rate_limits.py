@@ -45,6 +45,12 @@ print(rate_limits.check_at(first, "api", 1061))
         blocked=json.loads(out[2]);self.assertEqual(blocked['status'],429);self.assertGreater(int(blocked['headers']['Retry-After']),0)
         self.assertEqual(out[3],'nil')
 
+    def test_global_delivery_cap_blocks_recipient_spray(self):
+        self.env['VIPER_EMAIL_GLOBAL_PER_HOUR']='4'
+        output=self.run_native('print(rate_limits.reserve_email_at("a@example.test",1000))\nprint(rate_limits.reserve_email_at("b@example.test",1000))\nprint(rate_limits.reserve_email_at("c@example.test",1000))\nprint(rate_limits.reserve_email_at("d@example.test",1000))\nprint(rate_limits.reserve_email_at("e@example.test",1000))\n')
+        self.assertEqual(output,['true','true','true','true','false'])
+
+
 class EmailHTTP(OTPFlow):
     def test_08_fourth_email_returns_429_without_changing_password(self):
         email='owner@example.test'
