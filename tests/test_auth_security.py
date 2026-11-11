@@ -22,6 +22,8 @@ class AuthSecurity(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory(prefix='viper-auth-test-')
         cls.work = Path(cls.temp.name)
         shutil.copytree(ROOT / 'src', cls.work / 'src')
+        if hasattr(cls, 'prepare_sources'):
+            cls.prepare_sources()
         (cls.work / 'data').mkdir()
         cls.env = dict(os.environ, VIPER_JWT_SECRET=secrets.token_hex(32), HOST='127.0.0.1')
         with socket.socket() as sock:

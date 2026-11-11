@@ -10,6 +10,7 @@ import std.crypto
 import std.math
 import std.env
 import std.process
+import std.string
 
 import database
 import email_service
@@ -157,14 +158,7 @@ fn handle_register(req):
     let otp_code = str(otp_num)
     let password_hash = crypto.hash_password(password)
 
-    let html = email_service.build_email_template(
-        "Your music journey starts here.",
-        "WELCOME TO MUSIC",
-        "Welcome to MUSIC! Discover your favorite artists, explore new sounds, and enjoy playlists made just for you.",
-        otp_code
-    )
-
-    let email_sent = email_service.send_resend_email(email, "Welcome to MUSIC - Verify Your Email", html)
+    let email_sent = email_service.send_app_auth_email(body, email, "signup", otp_code)
 
     // Fallback: If Resend SMTP hit daily quota or failed, allow direct signup without OTP!
     if !email_sent:
@@ -254,7 +248,7 @@ fn handle_verify_email(req):
         }
 
     let email = body["email"]
-    let code = body["code"]
+    let code = string.trim(str(body["code"]))
 
     if !contains(keys(PENDING_REGISTRATIONS), email) or PENDING_REGISTRATIONS[email] == nil:
         return {
@@ -408,14 +402,7 @@ fn handle_forgot_password(req):
     let otp_num = 100000 + (int(time.now() * 1000.0) % 900000)
     let otp_code = str(otp_num)
 
-    let html = email_service.build_email_template(
-        "Reset your password.",
-        "ACCOUNT SECURITY",
-        "Use the verification code below to reset your password. This code expires in 10 minutes.",
-        otp_code
-    )
-
-    let email_sent = email_service.send_resend_email(email, "Password Reset Code - MUSIC", html)
+    let email_sent = email_service.send_app_auth_email(body, email, "reset", otp_code)
 
     // If Resend failed (e.g. quota limit reached): return try later error!
     if !email_sent:
@@ -452,7 +439,7 @@ fn handle_reset_password(req):
         }
 
     let email = body["email"]
-    let code = body["code"]
+    let code = string.trim(str(body["code"]))
     let newPassword = body["newPassword"]
 
     if len(newPassword) < 6:
@@ -523,8 +510,7 @@ fn handle_resend_code(req):
                 "status": 400,
                 "body": { "error": "No pending reset request for this email." }
             }
-        let html = email_service.build_email_template("Reset your password.", "ACCOUNT SECURITY", "Use the verification code below to reset your password. This code expires in 10 minutes.", otp_code)
-        let ok = email_service.send_resend_email(email, "Password Reset Code - MUSIC", html)
+        let ok = email_service.send_app_auth_email(body, email, "reset", otp_code)
         if !ok:
             return {
                 "status": 429,
@@ -542,8 +528,7 @@ fn handle_resend_code(req):
                 "status": 400,
                 "body": { "error": "No pending registration for this email." }
             }
-        let html = email_service.build_email_template("Your music journey starts here.", "WELCOME TO MUSIC", "Welcome to MUSIC! Discover your favorite artists, explore new sounds, and enjoy playlists made just for you.", otp_code)
-        let ok = email_service.send_resend_email(email, "Welcome to MUSIC - Verify Your Email", html)
+        let ok = email_service.send_app_auth_email(body, email, "signup", otp_code)
         if !ok:
             // Allow direct verification if email service fails
             let pending = PENDING_REGISTRATIONS[email]
